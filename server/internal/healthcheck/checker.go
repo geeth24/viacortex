@@ -106,11 +106,12 @@ func (c *Checker) checkBackendHealth(ctx context.Context, scheme string, ip neti
 }
 
 func (c *Checker) checkAllBackends(ctx context.Context) {
-    // Get all domains with health checking enabled and their backends
     rows, err := c.db.Query(ctx, `
         SELECT 
             d.id, d.health_check_interval,
-            b.id, b.scheme, b.ip::text, b.port
+            b.id, b.scheme, 
+            host(b.ip), -- Use host() to get just the IP without CIDR
+            b.port
         FROM domains d
         JOIN backend_servers b ON b.domain_id = d.id
         WHERE d.health_check_enabled = true 
