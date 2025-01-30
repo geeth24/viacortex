@@ -116,7 +116,7 @@ func (m *MetricsCollector) flush() {
         ctx := context.Background()
         var domainID int
         err := m.db.QueryRow(ctx, 
-            "SELECT id FROM domains WHERE name = $1",
+            "SELECT id FROM domains WHERE target_url = $1",
             domain,
         ).Scan(&domainID)
 
