@@ -1,4 +1,4 @@
-FROM golang:1.21 AS builder
+FROM golang:1.22 AS builder
 
 WORKDIR /app
 COPY . .
@@ -6,7 +6,19 @@ RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux go build -o viacortex ./cmd/viacortex
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Install necessary certificates and clean up
+RUN apt-get update && \
+    apt-get install -y ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create directory for certmagic storage
+RUN mkdir -p /root/.local/share/certmagic && \
+    chmod 700 /root/.local/share/certmagic
+
 WORKDIR /app
 COPY --from=builder /app/viacortex .
+
+EXPOSE 80 443 8080
+
 CMD ["./viacortex"]
