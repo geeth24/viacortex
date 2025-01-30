@@ -23,8 +23,6 @@ services:
         limits:
           cpus: '1'
           memory: 1G
-    networks:
-      - viacortex-network
 
   db:
     image: postgres:15
@@ -38,11 +36,6 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
 volumes:
+  go-modules:
   ssl-certs:
-    driver: local
   postgres_data:
-    driver: local
-
-networks:
-  viacortex-network:
-    driver: bridge
