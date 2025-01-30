@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   server:
     build: 
@@ -10,7 +12,7 @@ services:
     volumes:
       - ./server:/app
       - go-modules:/go/pkg/mod
-      - ./ssl-certs:/root/.local/share/certmagic  # For SSL certificate storage
+      - ssl-certs:/root/.local/share/certmagic  # For SSL certificate storage
     env_file:
       - .env
     depends_on:
@@ -28,9 +30,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
 
 volumes:
   go-modules:
-  ssl-certs:  # Persistent volume for SSL certificates
+  ssl-certs:
   postgres_data:
