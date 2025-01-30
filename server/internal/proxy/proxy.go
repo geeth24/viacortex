@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -206,7 +207,8 @@ func (p *ProxyServer) Run(httpPort, httpsPort int) error {
         }
     }()
     
-    // Get all domains that need SSL certificates
+    // Start HTTPS server with TLS config from certmagic
+    
     var domains []string
     p.domains.Range(func(key, value interface{}) bool {
         domain := key.(string)
@@ -221,10 +223,12 @@ func (p *ProxyServer) Run(httpPort, httpsPort int) error {
         log.Println("Warning: No SSL-enabled domains found in database")
         // Still start HTTPS server even without domains
         server := &http.Server{
-            Addr:    fmt.Sprintf(":%d", httpsPort),
-            Handler: p,
-        }
-        return server.ListenAndServe()
+        Addr:      fmt.Sprintf(":%d", httpsPort),
+        Handler:   p,
+        TLSConfig: p.certManager.TLSConfig(),
+    }
+	return server.ListenAndServeTLS("", "") // Empty strings because certmagic handles the certs
+
     }
     
     log.Printf("Managing SSL certificates for domains: %v", domains)
@@ -253,3 +257,12 @@ func (p *ProxyServer) ConfigureCertmagic(email string) error {
     
     return nil
 }
+// Add this method to ProxyServer struct
+func (p *ProxyServer) ObtainCertificate(domain string) error {
+    if err := p.certManager.ManageAsync(context.Background(), []string{domain}); err != nil {
+        return fmt.Errorf("failed to obtain certificate for %s: %w", domain, err)
+    }
+    return nil
+}
+
+
