@@ -125,7 +125,7 @@ func (h *Handlers) createDomain(w http.ResponseWriter, r *http.Request) {
             INSERT INTO backend_servers (
                 domain_id, scheme, ip, port, weight, is_active, health_status
 				) VALUES ($1, $2, $3::inet, $4, $5, $6, $7)
-		`, domainID, backend.Scheme, backend.IP.String(), backend.Port, backend.Weight, backend.IsActive, "unknown")
+		`, domainID, backend.Scheme, backend.IP.String(), backend.Port, backend.Weight, backend.IsActive, "healthy")
 
         if err != nil {
             log.Printf("Error creating backend server: %v", err)
@@ -205,7 +205,7 @@ func (h *Handlers) updateDomain(w http.ResponseWriter, r *http.Request) {
             INSERT INTO backend_servers (
 				domain_id, scheme, ip, port, weight, is_active, health_status
 			) VALUES ($1, $2, $3::inet, $4, $5, $6, $7)
-		`, domainID, backend.Scheme, backend.IP.String(), backend.Port, backend.Weight, backend.IsActive, "unknown")
+		`, domainID, backend.Scheme, backend.IP.String(), backend.Port, backend.Weight, backend.IsActive, "healthy")
 		
         if err != nil {
             log.Printf("Error creating backend server: %v", err)

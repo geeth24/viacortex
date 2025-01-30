@@ -13,6 +13,7 @@ import (
 
 	"viacortex/internal/api"
 	"viacortex/internal/db"
+	"viacortex/internal/healthcheck"
 	"viacortex/internal/middleware"
 	"viacortex/internal/proxy"
 
@@ -50,6 +51,9 @@ func main() {
 	}
     // Start background domain loading
     go loader.Start(ctx)
+
+	healthChecker := healthcheck.NewChecker(dbpool)
+    healthChecker.Start(ctx)
 
     // Initialize admin router with middleware
     r := chi.NewRouter()
@@ -136,6 +140,9 @@ func main() {
         // Cancel context to stop the loader
         cancel()
 
+		// Stop health checker
+		 healthChecker.Stop()
+		 
         // Create shutdown context with timeout
         shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
         defer shutdownCancel()
