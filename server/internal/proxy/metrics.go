@@ -1,13 +1,14 @@
 package proxy
 
 import (
-    "context"
-    "fmt"
-    "sort"
-    "sync"
-    "time"
+	"context"
+	"fmt"
+	"sort"
+	"sync"
+	"time"
 
-    "github.com/jackc/pgx/v4/pgxpool"
+	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 type MetricsCollector struct {
@@ -111,13 +112,29 @@ func (m *MetricsCollector) flush() {
             avgLatency = sum / float64(len(metrics.Latencies))
         }
 
-        // Insert metrics into database
+        // First, check if the domain exists and get its ID
         ctx := context.Background()
-        _, err := m.db.Exec(ctx,
+        var domainID int
+        err := m.db.QueryRow(ctx, 
+            "SELECT id FROM domains WHERE name = $1",
+            domain,
+        ).Scan(&domainID)
+
+        if err != nil {
+            if err == pgx.ErrNoRows {
+                fmt.Printf("Warning: Skipping metrics for unknown domain: %s\n", domain)
+                return true
+            }
+            fmt.Printf("Error querying domain: %v\n", err)
+            return true
+        }
+
+        // Insert metrics into database using the verified domain_id
+        _, err = m.db.Exec(ctx,
             `INSERT INTO request_metrics 
             (domain_id, timestamp, request_count, error_count, avg_latency_ms, p95_latency_ms, p99_latency_ms)
-            VALUES ((SELECT id FROM domains WHERE name = $1), $2, $3, $4, $5, $6, $7)`,
-            domain,
+            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            domainID,
             time.Now(),
             metrics.RequestCount,
             metrics.ErrorCount,
