@@ -1,0 +1,36 @@
+services:
+  server:
+    build: 
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"      # HTTP port for proxy
+      - "443:443"    # HTTPS port for proxy
+      - "8080:8080"  # Admin API port
+    volumes:
+      - ./server:/app
+      - go-modules:/go/pkg/mod
+      - ./ssl-certs:/root/.local/share/certmagic  # For SSL certificate storage
+    env_file:
+      - .env
+    depends_on:
+      - db
+    command: air
+    cap_add:
+      - NET_BIND_SERVICE  # Required to bind to ports 80 and 443
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=viacortex
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+
+volumes:
+  go-modules:
+  ssl-certs:  # Persistent volume for SSL certificates
+  postgres_data:
