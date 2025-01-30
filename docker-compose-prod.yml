@@ -4,7 +4,7 @@ services:
   server:
     build: 
       context: ./server
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     ports:
       - "80:80"      # HTTP port for proxy
       - "443:443"    # HTTPS port for proxy
@@ -27,23 +27,15 @@ services:
       - viacortex-network
 
   db:
-    image: postgres:15-alpine
+    image: postgres:15
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=viacortex
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - viacortex-network
-    restart: unless-stopped
     ports:
       - "5432:5432"
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
 volumes:
   ssl-certs:
