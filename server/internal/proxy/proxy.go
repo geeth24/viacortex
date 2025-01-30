@@ -190,11 +190,27 @@ func (p *ProxyServer) selectBackend(config *DomainConfig) *BackendServer {
 
 func (p *ProxyServer) UpdateDomain(domain string, config *DomainConfig) {
     p.domains.Store(domain, config)
+    
+    // If SSL is enabled, ensure we have a certificate
+    if config.SSLEnabled {
+        if err := p.ObtainCertificate(domain); err != nil {
+            log.Printf("Error obtaining certificate for %s: %v", domain, err)
+        }
+    }
 }
 
 func (p *ProxyServer) DeleteDomain(domain string) {
     p.domains.Delete(domain)
 }
+
+func (p *ProxyServer) ObtainCertificate(domain string) error {
+    ctx := context.Background()
+    if err := p.certManager.ManageAsync(ctx, []string{domain}); err != nil {
+        return fmt.Errorf("failed to obtain certificate for %s: %w", domain, err)
+    }
+    return nil
+}
+
 func (p *ProxyServer) Run(httpPort, httpsPort int) error {
     // Start HTTP server
     go func() {
@@ -206,41 +222,38 @@ func (p *ProxyServer) Run(httpPort, httpsPort int) error {
             log.Printf("HTTP server error: %v\n", err)
         }
     }()
-    
-    // Start HTTPS server with TLS config from certmagic
-    
+
+    // Get initial SSL domains and obtain certificates
     var domains []string
     p.domains.Range(func(key, value interface{}) bool {
         domain := key.(string)
         config := value.(*DomainConfig)
         if config.SSLEnabled {
             domains = append(domains, domain)
+            // Obtain certificate for each domain
+            if err := p.ObtainCertificate(domain); err != nil {
+                log.Printf("Error obtaining certificate for %s: %v", domain, err)
+            }
         }
         return true
     })
 
-    if len(domains) == 0 {
-        log.Println("Warning: No SSL-enabled domains found in database")
-        // Still start HTTPS server even without domains
-        server := &http.Server{
+    log.Printf("Managing SSL certificates for domains: %v", domains)
+
+    // Start HTTPS server with TLS config from certmagic
+    server := &http.Server{
         Addr:      fmt.Sprintf(":%d", httpsPort),
         Handler:   p,
         TLSConfig: p.certManager.TLSConfig(),
     }
-	return server.ListenAndServeTLS("", "") // Empty strings because certmagic handles the certs
-
-    }
     
-    log.Printf("Managing SSL certificates for domains: %v", domains)
-    
-    // Configure HTTPS server with automatic certificate management
-    return certmagic.HTTPS(domains, p)
+    return server.ListenAndServeTLS("", "") // Empty strings because certmagic handles the certs
 }
-
 
 func (p *ProxyServer) Metrics() *MetricsCollector {
     return p.metrics
 }
+
 func (p *ProxyServer) ConfigureCertmagic(email string) error {
     // Set default config for certmagic
     certmagic.DefaultACME.Email = email
@@ -257,12 +270,3 @@ func (p *ProxyServer) ConfigureCertmagic(email string) error {
     
     return nil
 }
-// Add this method to ProxyServer struct
-func (p *ProxyServer) ObtainCertificate(domain string) error {
-    if err := p.certManager.ManageAsync(context.Background(), []string{domain}); err != nil {
-        return fmt.Errorf("failed to obtain certificate for %s: %w", domain, err)
-    }
-    return nil
-}
-
-
