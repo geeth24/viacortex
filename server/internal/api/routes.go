@@ -38,6 +38,8 @@ func SetupRoutes(r *chi.Mux, handlers *Handlers) {
             r.Post("/register", handlers.handleRegister)
             r.Post("/login", handlers.handleLogin)
             r.Post("/refresh", handlers.handleRefresh)
+            r.Get("/check-users", handlers.checkUsers)
+            r.Get("/verify", handlers.verifyToken)
         })
 
         // Status endpoint (public)
@@ -112,6 +114,11 @@ func SetupRoutes(r *chi.Mux, handlers *Handlers) {
                 r.Get("/", handlers.getAuditLogs)
                 r.Get("/{entityType}/{entityID}", handlers.getEntityAuditLogs)
             })
+        })
+
+        // In your routes setup
+        apiRouter.Options("/*", func(w http.ResponseWriter, r *http.Request) {
+            w.WriteHeader(http.StatusOK)
         })
     })
 }

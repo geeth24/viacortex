@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"viacortex/internal/auth"
 	"viacortex/internal/db"
@@ -35,6 +36,17 @@ func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // if users are = 0, then we need to create an admin user
+    var count int
+    err := h.db.QueryRow(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+    if err != nil {
+        log.Printf("Error checking users: %v", err)
+        http.Error(w, "Server error", http.StatusInternalServerError)
+        return
+    }
+    if count == 0 {
+        req.Role = "admin"
+    }
     // Validate role
     if req.Role == "" {
         req.Role = "user" // Default role
@@ -232,7 +244,17 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
 
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(tokens)
+    json.NewEncoder(w).Encode(map[string]interface{}{
+        "access_token": tokens.AccessToken,
+        "refresh_token": tokens.RefreshToken,
+        "user": map[string]interface{}{
+            "id": user.ID,
+            "email": user.Email,
+            "role": user.Role,
+            "active": user.Active,
+            "last_login": user.LastLogin,
+        },
+    })
 }
 
 func (h *Handlers) handleRefresh(w http.ResponseWriter, r *http.Request) {
@@ -281,4 +303,89 @@ func (h *Handlers) handleRefresh(w http.ResponseWriter, r *http.Request) {
 
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(tokens)
+}
+func (h *Handlers) verifyToken(w http.ResponseWriter, r *http.Request) {
+    
+  		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		tokenParts := strings.Split(authHeader, " ")
+		if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
+			http.Error(w, "Invalid authorization header", http.StatusUnauthorized)
+			return
+		}
+
+		_, err := auth.ValidateToken(tokenParts[1])
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("ok"))
+}
+    
+
+func (h *Handlers) checkUsers(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+
+    var count int
+    err := h.db.QueryRow(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+    if err != nil {
+        log.Printf("Error checking users: %v", err)
+        http.Error(w, "Server error", http.StatusInternalServerError)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]int{"count": count})
+}
+
+func (h *Handlers) handleVerify(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+    
+    // Get token from Authorization header
+    authHeader := r.Header.Get("Authorization")
+    if authHeader == "" {
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
+
+    tokenParts := strings.Split(authHeader, " ")
+    if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
+        http.Error(w, "Invalid authorization header", http.StatusUnauthorized)
+        return
+    }
+
+    // Validate token
+    claims, err := auth.ValidateToken(tokenParts[1])
+    if err != nil {
+        http.Error(w, "Invalid token", http.StatusUnauthorized)
+        return
+    }
+
+    // Get user data
+    var user db.User
+    err = h.db.QueryRow(ctx, `
+        SELECT id, email, role, active, last_login, created_at, updated_at
+        FROM users 
+        WHERE id = $1 AND active = true
+    `, claims.UserID).Scan(
+        &user.ID, &user.Email, &user.Role, &user.Active,
+        &user.LastLogin, &user.CreatedAt, &user.UpdatedAt,
+    )
+
+    if err != nil {
+        log.Printf("Error fetching user: %v", err)
+        http.Error(w, "User not found", http.StatusNotFound)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(map[string]interface{}{
+        "user": user,
+    })
 }
