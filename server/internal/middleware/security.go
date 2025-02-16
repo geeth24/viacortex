@@ -2,9 +2,11 @@ package middleware
 
 import (
 	"context"
+	"log"
 	"net/http"
-	"os"
+	"strconv"
 	"strings"
+	"os"
 
 	"viacortex/internal/auth"
 
@@ -14,8 +16,9 @@ import (
 // Define context keys to avoid string-based keys
 type contextKey string
 const (
-    UserIDKey contextKey = "user_id"
-    RoleKey   contextKey = "role"
+    UserIDKey   contextKey = "userID"  // Changed to match the key used in handlers
+    EmailKey    contextKey = "userEmail"
+    RoleKey     contextKey = "userRole"
 )
 
 func SecurityHeaders(next http.Handler) http.Handler {
@@ -43,7 +46,9 @@ func Cors() func(http.Handler) http.Handler {
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if env := os.Getenv("ENV"); env != "production" {
-			next.ServeHTTP(w, r)
+			// For development, still set a test user ID
+			ctx := context.WithValue(r.Context(), UserIDKey, int64(1))
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 
@@ -71,17 +76,37 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Add claims to request context using typed keys
-		ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
+		// Convert user ID from string to int64
+		userID, err := strconv.ParseInt(claims.UserID, 10, 64)
+		if err != nil {
+			log.Printf("Error converting user ID: %v", err)
+			http.Error(w, "Invalid user ID", http.StatusUnauthorized)
+			return
+		}
+
+		log.Printf("Setting userID in context: %d", userID) // Debug log
+
+		// Add claims to request context
+		ctx := r.Context()
+		ctx = context.WithValue(ctx, UserIDKey, userID)
+		ctx = context.WithValue(ctx, EmailKey, claims.Email)
 		ctx = context.WithValue(ctx, RoleKey, claims.Role)
+		
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// Helper functions to get values from context
-func GetUserIDFromContext(ctx context.Context) string {
-    if id, ok := ctx.Value(UserIDKey).(string); ok {
+// Update helper functions to return correct types
+func GetUserIDFromContext(ctx context.Context) int64 {
+    if id, ok := ctx.Value(UserIDKey).(int64); ok {
         return id
+    }
+    return 0
+}
+
+func GetEmailFromContext(ctx context.Context) string {
+    if email, ok := ctx.Value(EmailKey).(string); ok {
+        return email
     }
     return ""
 }

@@ -145,6 +145,7 @@ func createSchema(pool *pgxpool.Pool) error {
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             email VARCHAR(255) NOT NULL UNIQUE,
+            name VARCHAR(255),
             password_hash VARCHAR(255) NOT NULL,
             role VARCHAR(50) DEFAULT 'user',
             active BOOLEAN DEFAULT true,
@@ -162,6 +163,8 @@ func createSchema(pool *pgxpool.Pool) error {
             changes JSONB,
             timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )`,
+        `
+        `,
     }
 
     for _, query := range tableQueries {

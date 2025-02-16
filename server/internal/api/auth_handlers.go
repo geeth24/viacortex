@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -137,6 +138,32 @@ func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Get the created user's data
+    var user db.User
+    var nullableName sql.NullString
+
+    err = h.db.QueryRow(ctx, `
+        SELECT id, email, name, role, active, last_login, created_at, updated_at
+        FROM users 
+        WHERE id = $1
+    `, userID).Scan(
+        &user.ID, &user.Email, &nullableName, &user.Role, &user.Active,
+        &user.LastLogin, &user.CreatedAt, &user.UpdatedAt,
+    )
+
+    if err != nil {
+        log.Printf("Error fetching created user: %v", err)
+        http.Error(w, "Server error", http.StatusInternalServerError)
+        return
+    }
+
+    // Set the name from nullable field
+    if nullableName.Valid {
+        user.Name = nullableName.String
+    } else {
+        user.Name = ""
+    }
+
     // Generate tokens
     tokens, err := auth.GenerateTokenPair(fmt.Sprintf("%d", userID), req.Email, req.Role)
     if err != nil {
@@ -145,11 +172,25 @@ func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    response := map[string]interface{}{
+        "access_token": tokens.AccessToken,
+        "refresh_token": tokens.RefreshToken,
+        "user": map[string]interface{}{
+            "id": user.ID,
+            "email": user.Email,
+            "role": user.Role,
+            "active": user.Active,
+            "name": user.Name,
+        },
+    }
+
+    if user.LastLogin.Valid {
+        response["user"].(map[string]interface{})["last_login"] = user.LastLogin.Time
+    }
+
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(http.StatusCreated)
-    if err := json.NewEncoder(w).Encode(tokens); err != nil {
-        log.Printf("Error encoding response: %v", err)
-    }
+    json.NewEncoder(w).Encode(response)
 }
 
 func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -171,11 +212,13 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
     defer tx.Rollback(ctx)
 
     var user db.User
+    var nullableName sql.NullString
+
     err = tx.QueryRow(ctx, `
-        SELECT id, email, password_hash, role, active 
+        SELECT id, email, password_hash, role, active, name 
         FROM users 
         WHERE email = $1
-    `, req.Email).Scan(&user.ID, &user.Email, &user.Password, &user.Role, &user.Active)
+    `, req.Email).Scan(&user.ID, &user.Email, &user.Password, &user.Role, &user.Active, &nullableName)
 
     if err == pgx.ErrNoRows {
         http.Error(w, "Invalid credentials", http.StatusUnauthorized)
@@ -235,6 +278,13 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
         return
     }
     
+    // After the scan, set the name
+    if nullableName.Valid {
+        user.Name = nullableName.String
+    } else {
+        user.Name = "" // Set empty string if NULL
+    }
+
     // Generate tokens
     tokens, err := auth.GenerateTokenPair(fmt.Sprintf("%d", user.ID), user.Email, user.Role)
     if err != nil {
@@ -242,9 +292,7 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(map[string]interface{}{
+    response := map[string]interface{}{
         "access_token": tokens.AccessToken,
         "refresh_token": tokens.RefreshToken,
         "user": map[string]interface{}{
@@ -252,9 +300,17 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
             "email": user.Email,
             "role": user.Role,
             "active": user.Active,
-            "last_login": user.LastLogin,
+            "name": user.Name,
         },
-    })
+    }
+
+    if user.LastLogin.Valid {
+        response["user"].(map[string]interface{})["last_login"] = user.LastLogin.Time
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(response)
 }
 
 func (h *Handlers) handleRefresh(w http.ResponseWriter, r *http.Request) {
@@ -304,30 +360,73 @@ func (h *Handlers) handleRefresh(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(tokens)
 }
+
 func (h *Handlers) verifyToken(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
     
-  		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
+    authHeader := r.Header.Get("Authorization")
+    if authHeader == "" {
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
+    }
 
-		tokenParts := strings.Split(authHeader, " ")
-		if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
-			http.Error(w, "Invalid authorization header", http.StatusUnauthorized)
-			return
-		}
+    tokenParts := strings.Split(authHeader, " ")
+    if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
+        http.Error(w, "Invalid authorization header", http.StatusUnauthorized)
+        return
+    }
 
-		_, err := auth.ValidateToken(tokenParts[1])
-		if err != nil {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
-			return
-		}
+    claims, err := auth.ValidateToken(tokenParts[1])
+    if err != nil {
+        http.Error(w, "Invalid token", http.StatusUnauthorized)
+        return
+    }
 
-    w.WriteHeader(http.StatusOK)
-    w.Write([]byte("ok"))
+    // Get user data
+    var user db.User
+    var nullableName sql.NullString
+
+    err = h.db.QueryRow(ctx, `
+        SELECT id, email, name, role, active, last_login, created_at, updated_at
+        FROM users 
+        WHERE id = $1 AND active = true
+    `, claims.UserID).Scan(
+        &user.ID, &user.Email, &nullableName, &user.Role, &user.Active,
+        &user.LastLogin, &user.CreatedAt, &user.UpdatedAt,
+    )
+
+    if err != nil {
+        log.Printf("Error fetching user: %v", err)
+        http.Error(w, "User not found", http.StatusUnauthorized)
+        return
+    }
+
+    // After the scan, set the name
+    if nullableName.Valid {
+        user.Name = nullableName.String
+    } else {
+        user.Name = ""
+    }
+
+    // Create response with proper handling of NULL values
+    response := map[string]interface{}{
+        "user": map[string]interface{}{
+            "id": user.ID,
+            "email": user.Email,
+            "role": user.Role,
+            "active": user.Active,
+            "name": user.Name,
+        },
+    }
+
+    // Only include last_login if it's not NULL
+    if user.LastLogin.Valid {
+        response["user"].(map[string]interface{})["last_login"] = user.LastLogin.Time
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(response)
 }
-    
 
 func (h *Handlers) checkUsers(w http.ResponseWriter, r *http.Request) {
     ctx := r.Context()
@@ -369,12 +468,14 @@ func (h *Handlers) handleVerify(w http.ResponseWriter, r *http.Request) {
 
     // Get user data
     var user db.User
+    var nullableName sql.NullString
+
     err = h.db.QueryRow(ctx, `
-        SELECT id, email, role, active, last_login, created_at, updated_at
+        SELECT id, email, name, role, active, last_login, created_at, updated_at
         FROM users 
         WHERE id = $1 AND active = true
     `, claims.UserID).Scan(
-        &user.ID, &user.Email, &user.Role, &user.Active,
+        &user.ID, &user.Email, &nullableName, &user.Role, &user.Active,
         &user.LastLogin, &user.CreatedAt, &user.UpdatedAt,
     )
 
@@ -384,8 +485,27 @@ func (h *Handlers) handleVerify(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // After the scan, set the name
+    if nullableName.Valid {
+        user.Name = nullableName.String
+    } else {
+        user.Name = ""
+    }
+
+    response := map[string]interface{}{
+        "user": map[string]interface{}{
+            "id": user.ID,
+            "email": user.Email,
+            "role": user.Role,
+            "active": user.Active,
+            "name": user.Name,
+        },
+    }
+
+    if user.LastLogin.Valid {
+        response["user"].(map[string]interface{})["last_login"] = user.LastLogin.Time
+    }
+
     w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]interface{}{
-        "user": user,
-    })
+    json.NewEncoder(w).Encode(response)
 }

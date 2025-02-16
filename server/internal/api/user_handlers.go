@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 
 	"viacortex/internal/db"
+	"viacortex/internal/middleware"
 
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -54,6 +56,7 @@ func (h *Handlers) createUser(w http.ResponseWriter, r *http.Request) {
         Email    string `json:"email"`
         Password string `json:"password"`
         Role     string `json:"role"`
+        Name     string `json:"name"`
     }
 
     if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -94,10 +97,10 @@ func (h *Handlers) createUser(w http.ResponseWriter, r *http.Request) {
     // Create user
     var userID int64
     err = h.db.QueryRow(ctx, `
-        INSERT INTO users (email, password_hash, role, active)
-        VALUES ($1, $2, $3, true)
+        INSERT INTO users (email, password_hash, role, active, name)
+        VALUES ($1, $2, $3, true, NULLIF($4, ''))
         RETURNING id
-    `, req.Email, string(hashedPassword), req.Role).Scan(&userID)
+    `, req.Email, string(hashedPassword), req.Role, req.Name).Scan(&userID)
 
     if err != nil {
         log.Printf("Error creating user: %v", err)
@@ -335,6 +338,77 @@ func (h *Handlers) deleteUser(w http.ResponseWriter, r *http.Request) {
     })
 }
 
+// updateUserProfile updates a user's profile
+func (h *Handlers) updateUserProfile(w http.ResponseWriter, r *http.Request) {
+    log.Println("updateUserProfile")
+    ctx := r.Context()
+    
+    // Get userID from context
+    userID := getUserIDFromContext(ctx)
+    if userID == 0 {
+        http.Error(w, "Not authenticated", http.StatusUnauthorized)
+        return
+    }
+    
+    var req struct {
+        Name string `json:"name"`
+    }
+
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        log.Printf("Error decoding request: %v", err)
+        http.Error(w, "Invalid request body", http.StatusBadRequest)
+        return
+    }
+
+    // Validate name
+    req.Name = strings.TrimSpace(req.Name)
+    if req.Name == "" {
+        http.Error(w, "Name cannot be empty", http.StatusBadRequest)
+        return
+    }
+
+    // Update user profile
+    result, err := h.db.Exec(ctx, `
+        UPDATE users 
+        SET name = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+    `, req.Name, userID)
+
+    if err != nil {
+        log.Printf("Error updating user profile: %v", err)
+        http.Error(w, "Failed to update profile", http.StatusInternalServerError)
+        return
+    }
+
+    // Check if user was found and updated
+    rowsAffected := result.RowsAffected()
+    if rowsAffected == 0 {
+        http.Error(w, "User not found", http.StatusNotFound)
+        return
+    }
+
+    var user db.User
+    err = h.db.QueryRow(ctx, `
+        SELECT id, email, name, role, active, last_login, created_at, updated_at
+        FROM users WHERE id = $1
+    `, userID).Scan(
+        &user.ID, &user.Email, &user.Name, &user.Role,
+        &user.Active, &user.LastLogin, &user.CreatedAt, &user.UpdatedAt,
+    )
+
+    if err != nil {
+        log.Printf("Error fetching updated user: %v", err)
+        http.Error(w, "Failed to fetch updated profile", http.StatusInternalServerError)
+        return
+    }
+
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(map[string]interface{}{
+        "message": "Profile updated successfully",
+        "user":    user,
+    })
+}
+
 // Helper functions
 
 func isValidRole(role string) bool {
@@ -347,9 +421,5 @@ func isValidRole(role string) bool {
 }
 
 func getUserIDFromContext(ctx context.Context) int64 {
-    // This should be set by the auth middleware
-    if id, ok := ctx.Value("userID").(int64); ok {
-        return id
-    }
-    return 0
+    return middleware.GetUserIDFromContext(ctx)
 }

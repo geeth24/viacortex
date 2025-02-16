@@ -114,6 +114,9 @@ func SetupRoutes(r *chi.Mux, handlers *Handlers) {
                 r.Get("/", handlers.getAuditLogs)
                 r.Get("/{entityType}/{entityID}", handlers.getEntityAuditLogs)
             })
+
+            // Add this new route
+            r.Post("/profile", handlers.updateUserProfile)
         })
 
         // In your routes setup

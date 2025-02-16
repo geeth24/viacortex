@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net"
 	"time"
@@ -78,14 +79,15 @@ type RequestLog struct {
 }
 
 type User struct {
-    ID         int64     `json:"id" db:"id"`
-    Email      string    `json:"email" db:"email"`
-    Password   string    `json:"-" db:"password_hash"`
-    Role       string    `json:"role" db:"role"`
-    Active     bool      `json:"active" db:"active"`
-    LastLogin  time.Time `json:"last_login" db:"last_login"`
-    CreatedAt  time.Time `json:"created_at" db:"created_at"`
-    UpdatedAt  time.Time `json:"updated_at" db:"updated_at"`
+    ID         int64          `json:"id" db:"id"`
+    Email      string         `json:"email" db:"email"`
+    Name       string         `json:"name,omitempty" db:"name"`
+    Password   string         `json:"-" db:"password_hash"`
+    Role       string         `json:"role" db:"role"`
+    Active     bool          `json:"active" db:"active"`
+    LastLogin  sql.NullTime  `json:"last_login,omitempty" db:"last_login"`
+    CreatedAt  time.Time     `json:"created_at" db:"created_at"`
+    UpdatedAt  time.Time     `json:"updated_at" db:"updated_at"`
 }
 
 type AuditLog struct {
