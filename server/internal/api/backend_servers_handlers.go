@@ -83,7 +83,7 @@ func (h *Handlers) addBackendServer(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO backend_servers (domain_id, scheme, ip, port, weight, is_active)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
-	`, domainID, server.Scheme, server.IP, server.Port, server.Weight, server.IsActive).Scan(&serverID)
+	`, domainID, server.Scheme, server.IP.String(), server.Port, server.Weight, server.IsActive).Scan(&serverID)
 
 
     if err != nil {
@@ -142,7 +142,7 @@ func (h *Handlers) updateBackendServer(w http.ResponseWriter, r *http.Request) {
         UPDATE backend_servers 
         SET scheme = $1, ip = $2, port = $3, weight = $4, is_active = $5
 		WHERE id = $6
-	`, server.Scheme, server.IP, server.Port, server.Weight, server.IsActive, serverID)
+	`, server.Scheme, server.IP.String(), server.Port, server.Weight, server.IsActive, serverID)
     if err != nil {
         log.Printf("Error updating backend server: %v", err)
         http.Error(w, "Failed to update backend server", http.StatusInternalServerError)

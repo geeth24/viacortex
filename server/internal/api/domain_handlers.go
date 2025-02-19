@@ -15,7 +15,7 @@ import (
 func (h *Handlers) getDomains(w http.ResponseWriter, r *http.Request) {
     ctx := r.Context()
     
-    domains := []db.Domain{}
+    domains := []map[string]interface{}{}
     rows, err := h.db.Query(ctx, `
         SELECT 
             d.id, d.name, d.target_url, d.ssl_enabled, 
@@ -71,8 +71,12 @@ func (h *Handlers) getDomains(w http.ResponseWriter, r *http.Request) {
         }
         backendRows.Close()
         
-        d.BackendServers = backends
-        domains = append(domains, d)
+        // Create the wrapped response structure
+        domainWrapper := map[string]interface{}{
+            "domain":          d,
+            "backend_servers": backends,
+        }
+        domains = append(domains, domainWrapper)
     }
 
     w.Header().Set("Content-Type", "application/json")
@@ -83,7 +87,7 @@ func (h *Handlers) getDomains(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) createDomain(w http.ResponseWriter, r *http.Request) {
     ctx := r.Context()
     var req struct {
-        Domain        db.Domain         `json:"domain"`
+        Domain         db.Domain         `json:"domain"`
         BackendServers []db.BackendServer `json:"backend_servers"`
     }
 
@@ -140,11 +144,34 @@ func (h *Handlers) createDomain(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // After successful creation, fetch the complete domain data
+    var createdDomain db.Domain
+    err = h.db.QueryRow(ctx, `
+        SELECT id, name, target_url, ssl_enabled, 
+            health_check_enabled, health_check_interval,
+            custom_error_pages, created_at, updated_at
+        FROM domains 
+        WHERE id = $1
+    `, domainID).Scan(
+        &createdDomain.ID, &createdDomain.Name, &createdDomain.TargetURL,
+        &createdDomain.SSLEnabled, &createdDomain.HealthCheckEnabled,
+        &createdDomain.HealthCheckInterval, &createdDomain.CustomErrorPages,
+        &createdDomain.CreatedAt, &createdDomain.UpdatedAt,
+    )
+    if err != nil {
+        log.Printf("Error fetching created domain: %v", err)
+        http.Error(w, "Server error", http.StatusInternalServerError)
+        return
+    }
+
+    // Format response in the same structure as getDomains
+    response := map[string]interface{}{
+        "domain":          createdDomain,
+        "backend_servers": req.BackendServers,
+    }
+
     w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(map[string]interface{}{
-        "id": domainID,
-        "message": "Domain created successfully",
-    })
+    json.NewEncoder(w).Encode(response)
 }
 
 // updateDomain updates an existing domain and its backend servers
