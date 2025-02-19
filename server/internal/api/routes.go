@@ -27,6 +27,11 @@ func SetupRoutes(r *chi.Mux, handlers *Handlers) {
         AllowCredentials: true,
         MaxAge:           300,
     }))
+    r.Route("/", func(r chi.Router) {
+        r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+            w.WriteHeader(http.StatusOK)
+        })
+    })
 
     r.Route("/api", func(apiRouter chi.Router) {
         // Middleware for all API routes
