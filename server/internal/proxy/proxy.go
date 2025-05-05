@@ -374,21 +374,36 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn) {
 	clientAddr := clientConn.RemoteAddr().String()
 	log.Printf("New TCP connection from %s", clientAddr)
 	
-	// Determine target domain from SNI (for Minecraft)
-	// This is simplified - in a real implementation you'd need to parse the Minecraft handshake
-	// For now, we'll use a fixed domain for demonstration
-	domain := "minecraft.viacortex.com" // This should be configurable or detected from handshake
+	// Find the first domain with TCP backends
+	var domain string
+	var tcpConfig *DomainConfig
 	
-	// Get domain config
-	configVal, ok := p.domains.Load(domain)
-	if !ok {
-		log.Printf("TCP domain not found: %s", domain)
+	p.domains.Range(func(key, value interface{}) bool {
+		domainName := key.(string)
+		config := value.(*DomainConfig)
+		
+		// Check if this domain has any TCP backends
+		for _, backend := range config.Backends {
+			if backend.Scheme == "tcp" && backend.IsActive && 
+			   (backend.HealthStatus == nil || *backend.HealthStatus == "healthy") {
+				domain = domainName
+				tcpConfig = config
+				return false // Stop iterating
+			}
+		}
+		
+		return true // Continue iterating
+	})
+	
+	if domain == "" || tcpConfig == nil {
+		log.Printf("No domain with active TCP backends found")
 		return
 	}
-	config := configVal.(*DomainConfig)
+	
+	log.Printf("Using domain %s for TCP connection", domain)
 	
 	// Select backend using round-robin
-	backend := p.selectBackend(config)
+	backend := p.selectBackend(tcpConfig)
 	if backend == nil {
 		log.Printf("No healthy TCP backends available for %s", domain)
 		return

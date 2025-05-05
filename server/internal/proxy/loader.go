@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -58,7 +59,6 @@ func (l *Loader) LoadAllDomains() error {
             d.health_check_enabled,
             d.health_check_interval
         FROM domains d
-        WHERE d.ssl_enabled = true
     `)
     if err != nil {
         return err
@@ -89,8 +89,15 @@ func (l *Loader) LoadAllDomains() error {
             return err
         }
 
+        // For TCP domains, use the name instead of targetURL to avoid protocol prefix issues
+        domainKey := targetURL
+        if strings.HasPrefix(targetURL, "tcp://") {
+            domainKey = name
+            log.Printf("Using domain name %s instead of %s for TCP", name, targetURL)
+        }
+
         config := &DomainConfig{
-            Domain:             targetURL,
+            Domain:             domainKey,
             SSLEnabled:        sslEnabled,
             HealthCheckEnabled: healthCheckEnabled,
         }
@@ -119,7 +126,7 @@ func (l *Loader) LoadAllDomains() error {
 
         // Update proxy configuration
         l.proxy.UpdateDomain(config.Domain, config)
-		log.Printf("Loaded domain %s with SSL enabled: %v", config.Domain, config.SSLEnabled)
+        log.Printf("Loaded domain %s with SSL enabled: %v", config.Domain, config.SSLEnabled)
         loadedDomains[config.Domain] = struct{}{}
     }
 
