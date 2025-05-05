@@ -120,6 +120,21 @@ func SetupRoutes(r *chi.Mux, handlers *Handlers) {
                 r.Get("/{entityType}/{entityID}", handlers.getEntityAuditLogs)
             })
 
+            // Certificate management
+            r.Route("/certificates", func(r chi.Router) {
+                r.Get("/", handlers.getAllCertificates)
+                r.Get("/expiring", handlers.getExpiringCertificates)
+                r.Get("/{id}", handlers.getCertificateByID)
+                r.Post("/", handlers.createCertificate)
+                r.Put("/{id}", handlers.updateCertificate)
+                r.Delete("/{id}", handlers.deleteCertificate)
+            })
+            
+            // Domain certificates
+            r.Route("/domains/{domainID}/certificates", func(r chi.Router) {
+                r.Get("/", handlers.getDomainCertificates)
+            })
+
             // Add this new route
             r.Post("/profile", handlers.updateUserProfile)
         })
