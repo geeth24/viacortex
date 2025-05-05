@@ -14,7 +14,7 @@ import (
 
 func SetupRoutes(r *chi.Mux, handlers *Handlers) {
     // Global middleware
-    r.Use(middleware.Logger)
+    // r.Use(middleware.Logger) - removed to prevent duplicate logging
     r.Use(middleware.Recoverer)
     r.Use(middleware.Timeout(60 * time.Second))
     
@@ -36,7 +36,6 @@ func SetupRoutes(r *chi.Mux, handlers *Handlers) {
     r.Route("/api", func(apiRouter chi.Router) {
         // Middleware for all API routes
         apiRouter.Use(middleware.AllowContentType("application/json"))
-        apiRouter.Use(middleware.SetHeader("Content-Type", "application/json"))
 
         // Public routes
         apiRouter.Group(func(r chi.Router) {
