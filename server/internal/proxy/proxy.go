@@ -323,8 +323,8 @@ func (p *ProxyServer) Run(httpPort, httpsPort int) error {
 		IdleTimeout:  120 * time.Second,
 	}
 	
-	// Start TCP proxy listener for Minecraft
-	go p.startTCPProxy(25565)
+	// Start TCP proxy listeners for different protocols
+	go p.startTCPProxies()
 
 	// Start the servers in goroutines
 	go func() {
@@ -345,15 +345,29 @@ func (p *ProxyServer) Run(httpPort, httpsPort int) error {
 	select {}
 }
 
-// startTCPProxy starts a TCP proxy listener on the specified port
-func (p *ProxyServer) startTCPProxy(port int) {
+// startTCPProxies starts TCP proxy listeners for configured protocols
+func (p *ProxyServer) startTCPProxies() {
+	// Default TCP ports for various protocols
+	protocolPorts := map[string]int{
+		"minecraft": 25565,
+		// Add other protocol-specific ports as needed
+	}
+	
+	// Start a listener for each protocol
+	for protocol, port := range protocolPorts {
+		go p.startTCPProxy(protocol, port)
+	}
+}
+
+// startTCPProxy starts a TCP proxy listener on the specified port for a specific protocol
+func (p *ProxyServer) startTCPProxy(protocol string, port int) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		log.Printf("TCP proxy listen error: %v", err)
+		log.Printf("TCP proxy listen error for %s on port %d: %v", protocol, port, err)
 		return
 	}
 	
-	log.Printf("Starting TCP proxy on port %d", port)
+	log.Printf("Starting TCP proxy for %s on port %d", protocol, port)
 	
 	for {
 		conn, err := listener.Accept()
@@ -362,19 +376,19 @@ func (p *ProxyServer) startTCPProxy(port int) {
 			continue
 		}
 		
-		go p.handleTCPConnection(conn)
+		go p.handleTCPConnection(conn, protocol)
 	}
 }
 
 // handleTCPConnection handles a TCP connection by determining the target and proxying data
-func (p *ProxyServer) handleTCPConnection(clientConn net.Conn) {
+func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) {
 	defer clientConn.Close()
 	
 	// Get client address
 	clientAddr := clientConn.RemoteAddr().String()
-	log.Printf("New TCP connection from %s", clientAddr)
+	log.Printf("New %s TCP connection from %s", protocol, clientAddr)
 	
-	// Find the first domain with TCP backends
+	// Find the first domain with TCP backends for this protocol
 	var domain string
 	var tcpConfig *DomainConfig
 	
@@ -396,16 +410,16 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn) {
 	})
 	
 	if domain == "" || tcpConfig == nil {
-		log.Printf("No domain with active TCP backends found")
+		log.Printf("No domain with active TCP backends found for %s", protocol)
 		return
 	}
 	
-	log.Printf("Using domain %s for TCP connection", domain)
+	log.Printf("Using domain %s for %s TCP connection", domain, protocol)
 	
 	// Select backend using round-robin
 	backend := p.selectBackend(tcpConfig)
 	if backend == nil {
-		log.Printf("No healthy TCP backends available for %s", domain)
+		log.Printf("No healthy TCP backends available for %s on %s", domain, protocol)
 		return
 	}
 	
@@ -423,6 +437,8 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn) {
 		return
 	}
 	defer backendConn.Close()
+	
+	log.Printf("Established %s connection to backend at %s", protocol, backendAddr)
 	
 	// Start proxying data in both directions
 	start := time.Now()
