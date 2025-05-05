@@ -16,7 +16,7 @@ func (h *Handlers) getAllCertificates(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	
-	certificates, err := db.GetAllCertificates(ctx, h.DB)
+	certificates, err := db.GetAllCertificates(ctx, h.db)
 	if err != nil {
 		http.Error(w, "Failed to retrieve certificates: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -37,7 +37,7 @@ func (h *Handlers) getCertificateByID(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	
-	certificate, err := db.GetCertificateByID(ctx, h.DB, id)
+	certificate, err := db.GetCertificateByID(ctx, h.db, id)
 	if err != nil {
 		http.Error(w, "Certificate not found", http.StatusNotFound)
 		return
@@ -58,7 +58,7 @@ func (h *Handlers) getDomainCertificates(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	
-	certificates, err := db.GetCertificatesByDomainID(ctx, h.DB, domainID)
+	certificates, err := db.GetCertificatesByDomainID(ctx, h.db, domainID)
 	if err != nil {
 		http.Error(w, "Failed to retrieve certificates: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -78,7 +78,7 @@ func (h *Handlers) createCertificate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	
-	id, err := db.CreateCertificate(ctx, h.DB, &cert)
+	id, err := db.CreateCertificate(ctx, h.db, &cert)
 	if err != nil {
 		http.Error(w, "Failed to create certificate: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -109,7 +109,7 @@ func (h *Handlers) updateCertificate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	
-	if err := db.UpdateCertificate(ctx, h.DB, &cert); err != nil {
+	if err := db.UpdateCertificate(ctx, h.db, &cert); err != nil {
 		http.Error(w, "Failed to update certificate: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -129,7 +129,7 @@ func (h *Handlers) deleteCertificate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	
-	if err := db.DeleteCertificate(ctx, h.DB, id); err != nil {
+	if err := db.DeleteCertificate(ctx, h.db, id); err != nil {
 		http.Error(w, "Failed to delete certificate: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -148,7 +148,7 @@ func (h *Handlers) getExpiringCertificates(w http.ResponseWriter, r *http.Reques
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	
-	certificates, err := db.GetExpiringCertificates(ctx, h.DB, days)
+	certificates, err := db.GetExpiringCertificates(ctx, h.db, days)
 	if err != nil {
 		http.Error(w, "Failed to retrieve expiring certificates: "+err.Error(), http.StatusInternalServerError)
 		return
