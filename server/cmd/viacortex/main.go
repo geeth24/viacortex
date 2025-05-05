@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -124,6 +125,22 @@ func main() {
     go func() {
         defer wg.Done()
         log.Println("Proxy server starting on ports 80 and 443")
+        log.Println("TCP proxy for Minecraft should also be starting on port 25565")
+        
+        // Debug DNS resolution
+        go func() {
+            time.Sleep(5 * time.Second) // Wait for everything to start
+            testDomains := []string{"mc.maxbrowser.win", "vc.maxbrowser.win"}
+            for _, domain := range testDomains {
+                ips, err := net.LookupIP(domain)
+                if err != nil {
+                    log.Printf("DNS lookup for %s failed: %v", domain, err)
+                } else {
+                    log.Printf("DNS lookup for %s succeeded: %v", domain, ips)
+                }
+            }
+        }()
+        
         if err := proxyServer.Run(80, 443); err != nil {
             log.Printf("Proxy server error: %v", err)
         }

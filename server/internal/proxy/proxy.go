@@ -301,6 +301,12 @@ func (p *ProxyServer) ConfigureCertmagic(email string) error {
 }
 
 func (p *ProxyServer) Run(httpPort, httpsPort int) error {
+	log.Printf("Starting proxy server with HTTP port %d, HTTPS port %d, and TCP proxies", httpPort, httpsPort)
+
+	// Start TCP proxy listeners for different protocols
+	// Important: Start this first, before HTTP/HTTPS
+	go p.startTCPProxies()
+
 	// HTTP server (for redirects & ACME challenges)
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", httpPort),
@@ -322,9 +328,6 @@ func (p *ProxyServer) Run(httpPort, httpsPort int) error {
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-	
-	// Start TCP proxy listeners for different protocols
-	go p.startTCPProxies()
 
 	// Start the servers in goroutines
 	go func() {
@@ -357,13 +360,16 @@ func (p *ProxyServer) startTCPProxies() {
 	
 	// Start a listener for each protocol
 	for protocol, port := range protocolPorts {
-		go p.startTCPProxy(protocol, port)
+		go func(proto string, portNum int) {
+			log.Printf("Starting TCP proxy for %s on port %d in goroutine", proto, portNum)
+			p.startTCPProxy(proto, portNum)
+		}(protocol, port)
 	}
 }
 
 // startTCPProxy starts a TCP proxy listener on the specified port for a specific protocol
 func (p *ProxyServer) startTCPProxy(protocol string, port int) {
-	addr := fmt.Sprintf(":%d", port)
+	addr := fmt.Sprintf("0.0.0.0:%d", port)
 	log.Printf("Setting up TCP proxy listener for %s on %s", protocol, addr)
 	
 	listener, err := net.Listen("tcp", addr)
