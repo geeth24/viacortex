@@ -99,18 +99,3 @@ type AuditLog struct {
     Changes    json.RawMessage `json:"changes" db:"changes"`
     Timestamp  time.Time       `json:"timestamp" db:"timestamp"`
 }
-
-type Certificate struct {
-    ID            int64     `json:"id" db:"id"`
-    DomainID      int64     `json:"domain_id" db:"domain_id"`
-    DomainName    string    `json:"domain_name" db:"domain_name"`
-    Issuer        string    `json:"issuer" db:"issuer"`
-    SerialNumber  string    `json:"serial_number" db:"serial_number"`
-    NotBefore     time.Time `json:"not_before" db:"not_before"`
-    NotAfter      time.Time `json:"not_after" db:"not_after"`
-    Status        string    `json:"status" db:"status"`
-    LastRenewal   time.Time `json:"last_renewal" db:"last_renewal"`
-    NextRenewal   time.Time `json:"next_renewal" db:"next_renewal"`
-    CreatedAt     time.Time `json:"created_at" db:"created_at"`
-    UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
-}
