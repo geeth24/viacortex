@@ -4,6 +4,7 @@ import (
     "context"
     "fmt"
     "log"
+    "net"
     "net/http"
     "net/netip"
     "sync"
@@ -66,7 +67,42 @@ func (c *Checker) Stop() {
     c.wg.Wait()
 }
 
+func (c *Checker) checkTCPHealth(ctx context.Context, ip string, port int) string {
+    address := fmt.Sprintf("%s:%d", ip, port)
+    
+    // Try up to 2 times with a short delay
+    for attempts := 0; attempts < 2; attempts++ {
+        // Set a timeout for the connection attempt
+        timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+        defer cancel()
+        
+        // Try to establish a TCP connection
+        var d net.Dialer
+        conn, err := d.DialContext(timeoutCtx, "tcp", address)
+        if err != nil {
+            log.Printf("TCP health check failed for %s (attempt %d): %v", address, attempts+1, err)
+            if attempts < 1 {
+                time.Sleep(time.Second)
+                continue
+            }
+            return "unhealthy"
+        }
+        
+        // Close the connection immediately; we just needed to check if it's open
+        conn.Close()
+        return "healthy"
+    }
+    
+    return "unhealthy"
+}
+
 func (c *Checker) checkBackendHealth(ctx context.Context, scheme string, ip netip.Addr, port int) string {
+    // Handle TCP protocol differently
+    if scheme == "tcp" {
+        return c.checkTCPHealth(ctx, ip.String(), port)
+    }
+    
+    // For HTTP/HTTPS use the existing check
     url := fmt.Sprintf("%s://%s:%d/", scheme, ip.String(), port)
     
     // Try up to 2 times with a short delay

@@ -95,7 +95,8 @@ func createSchema(pool *pgxpool.Pool) error {
             last_health_check TIMESTAMP,
             health_status VARCHAR(50),
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT valid_scheme CHECK (scheme IN ('http', 'https', 'tcp'))
         )`,
         `
         CREATE TABLE IF NOT EXISTS ip_rules (
@@ -124,6 +125,16 @@ func createSchema(pool *pgxpool.Pool) error {
             timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
             request_count INTEGER DEFAULT 0,
             error_count INTEGER DEFAULT 0,
+            avg_latency_ms FLOAT DEFAULT 0,
+            p95_latency_ms FLOAT DEFAULT 0,
+            p99_latency_ms FLOAT DEFAULT 0
+        )`,
+        `
+        CREATE TABLE IF NOT EXISTS tcp_metrics (
+            id SERIAL PRIMARY KEY,
+            domain_id INTEGER NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+            timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+            connection_count INTEGER DEFAULT 0,
             avg_latency_ms FLOAT DEFAULT 0,
             p95_latency_ms FLOAT DEFAULT 0,
             p99_latency_ms FLOAT DEFAULT 0
@@ -164,6 +175,10 @@ func createSchema(pool *pgxpool.Pool) error {
             timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )`,
         `
+        CREATE INDEX IF NOT EXISTS idx_request_metrics_domain_time ON request_metrics(domain_id, timestamp);
+        `,
+        `
+        CREATE INDEX IF NOT EXISTS idx_tcp_metrics_domain_time ON tcp_metrics(domain_id, timestamp);
         `,
     }
 

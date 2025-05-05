@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/caddyserver/certmagic"
 	"golang.org/x/time/rate"
+	"crypto/tls"
 )
 
 type ProxyServer struct {
@@ -299,40 +301,229 @@ func (p *ProxyServer) ConfigureCertmagic(email string) error {
 }
 
 func (p *ProxyServer) Run(httpPort, httpsPort int) error {
-	// Start HTTP server
+	// HTTP server (for redirects & ACME challenges)
+	httpServer := &http.Server{
+		Addr:         fmt.Sprintf(":%d", httpPort),
+		Handler:      http.HandlerFunc(p.httpHandler),
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// HTTPS server
+	httpsServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", httpsPort),
+		Handler: p,
+		TLSConfig: &tls.Config{
+			GetCertificate: p.certManager.GetCertificate,
+			MinVersion:     tls.VersionTLS12,
+		},
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	
+	// Start TCP proxy listener for Minecraft
+	go p.startTCPProxy(25565)
+
+	// Start the servers in goroutines
 	go func() {
-		server := &http.Server{
-			Addr:    fmt.Sprintf(":%d", httpPort),
-			Handler: p,
-		}
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server error: %v\n", err)
+		log.Printf("Starting HTTP server on port %d", httpPort)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
 		}
 	}()
 
-	// Get initial SSL domains and obtain certificates
-	var domains []string
-	p.domains.Range(func(key, value interface{}) bool {
-		domain := key.(string)
-		config := value.(*DomainConfig)
-		if config.SSLEnabled {
-			domains = append(domains, domain)
+	go func() {
+		log.Printf("Starting HTTPS server on port %d", httpsPort)
+		if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTPS server error: %v", err)
 		}
-		return true
-	})
+	}()
 
-	log.Printf("Managing SSL certificates for domains: %v", domains)
+	// Block indefinitely
+	select {}
+}
 
-	// Start HTTPS server with TLS config from certmagic
-	server := &http.Server{
-		Addr:      fmt.Sprintf(":%d", httpsPort),
-		Handler:   p,
-		TLSConfig: p.certManager.TLSConfig(),
+// startTCPProxy starts a TCP proxy listener on the specified port
+func (p *ProxyServer) startTCPProxy(port int) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		log.Printf("TCP proxy listen error: %v", err)
+		return
 	}
 	
-	return server.ListenAndServeTLS("", "") // Empty strings because certmagic handles the certs
+	log.Printf("Starting TCP proxy on port %d", port)
+	
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Printf("TCP accept error: %v", err)
+			continue
+		}
+		
+		go p.handleTCPConnection(conn)
+	}
+}
+
+// handleTCPConnection handles a TCP connection by determining the target and proxying data
+func (p *ProxyServer) handleTCPConnection(clientConn net.Conn) {
+	defer clientConn.Close()
+	
+	// Get client address
+	clientAddr := clientConn.RemoteAddr().String()
+	log.Printf("New TCP connection from %s", clientAddr)
+	
+	// Determine target domain from SNI (for Minecraft)
+	// This is simplified - in a real implementation you'd need to parse the Minecraft handshake
+	// For now, we'll use a fixed domain for demonstration
+	domain := "minecraft.viacortex.com" // This should be configurable or detected from handshake
+	
+	// Get domain config
+	configVal, ok := p.domains.Load(domain)
+	if !ok {
+		log.Printf("TCP domain not found: %s", domain)
+		return
+	}
+	config := configVal.(*DomainConfig)
+	
+	// Select backend using round-robin
+	backend := p.selectBackend(config)
+	if backend == nil {
+		log.Printf("No healthy TCP backends available for %s", domain)
+		return
+	}
+	
+	// Only proxy to TCP backends
+	if backend.Scheme != "tcp" {
+		log.Printf("Backend for %s is not TCP", domain)
+		return
+	}
+	
+	// Connect to backend
+	backendAddr := fmt.Sprintf("%s:%d", backend.IP.String(), backend.Port)
+	backendConn, err := net.Dial("tcp", backendAddr)
+	if err != nil {
+		log.Printf("TCP backend connection error: %v", err)
+		return
+	}
+	defer backendConn.Close()
+	
+	// Start proxying data in both directions
+	start := time.Now()
+	
+	// Create a context for this connection
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
+	// Create a WaitGroup to wait for both goroutines to finish
+	var wg sync.WaitGroup
+	wg.Add(2)
+	
+	// Client to backend
+	go func() {
+		defer wg.Done()
+		defer cancel() // Cancel context if this direction fails
+		
+		buf := make([]byte, 32*1024) // 32 KB buffer
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+				n, err := clientConn.Read(buf)
+				if err != nil {
+					if err != io.EOF {
+						log.Printf("TCP client read error: %v", err)
+					}
+					return
+				}
+				
+				backendConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				_, err = backendConn.Write(buf[:n])
+				if err != nil {
+					log.Printf("TCP backend write error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+	
+	// Backend to client
+	go func() {
+		defer wg.Done()
+		defer cancel() // Cancel context if this direction fails
+		
+		buf := make([]byte, 32*1024) // 32 KB buffer
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				backendConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+				n, err := backendConn.Read(buf)
+				if err != nil {
+					if err != io.EOF {
+						log.Printf("TCP backend read error: %v", err)
+					}
+					return
+				}
+				
+				clientConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				_, err = clientConn.Write(buf[:n])
+				if err != nil {
+					log.Printf("TCP client write error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+	
+	// Wait for both goroutines to finish
+	wg.Wait()
+	
+	// Record metrics
+	duration := time.Since(start)
+	p.metrics.RecordTCPRequest(domain, duration)
+	
+	log.Printf("TCP connection closed: %s -> %s, duration: %v", clientAddr, backendAddr, duration)
 }
 
 func (p *ProxyServer) Metrics() *MetricsCollector {
 	return p.metrics
+}
+
+// httpHandler handles HTTP requests, primarily for redirecting to HTTPS
+func (p *ProxyServer) httpHandler(w http.ResponseWriter, r *http.Request) {
+	// First, check for ACME challenges
+	if p.handleACMEChallenge(w, r) {
+		return
+	}
+
+	// Get the host from the request
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	
+	// Check if this domain is configured for SSL
+	configVal, ok := p.domains.Load(host)
+	if !ok {
+		http.Error(w, "Domain not found", http.StatusNotFound)
+		return
+	}
+	
+	config := configVal.(*DomainConfig)
+	if config.SSLEnabled {
+		// Redirect to HTTPS
+		u := r.URL
+		u.Host = r.Host
+		u.Scheme = "https"
+		http.Redirect(w, r, u.String(), http.StatusTemporaryRedirect)
+		return
+	}
+	
+	// If SSL is not enabled, serve the HTTP request
+	p.ServeHTTP(w, r)
 }

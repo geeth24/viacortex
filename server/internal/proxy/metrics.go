@@ -20,7 +20,9 @@ type MetricsCollector struct {
 type DomainMetrics struct {
     RequestCount  int
     ErrorCount    int
+    TCPCount     int
     Latencies    []float64
+    TCPLatencies []float64
     mu           sync.Mutex
 }
 
@@ -49,6 +51,17 @@ func (m *MetricsCollector) RecordRequest(domain string, statusCode int, duration
     if statusCode >= 400 {
         metrics.ErrorCount++
     }
+}
+
+func (m *MetricsCollector) RecordTCPRequest(domain string, duration time.Duration) {
+    metricsVal, _ := m.metrics.LoadOrStore(domain, &DomainMetrics{})
+    metrics := metricsVal.(*DomainMetrics)
+
+    metrics.mu.Lock()
+    defer metrics.mu.Unlock()
+
+    metrics.TCPCount++
+    metrics.TCPLatencies = append(metrics.TCPLatencies, float64(duration.Milliseconds()))
 }
 
 func (m *MetricsCollector) RecordError(domain string) {
@@ -87,11 +100,11 @@ func (m *MetricsCollector) flush() {
         metrics.mu.Lock()
         defer metrics.mu.Unlock()
 
-        if metrics.RequestCount == 0 {
+        if metrics.RequestCount == 0 && metrics.TCPCount == 0 {
             return true
         }
 
-        // Calculate percentiles
+        // Calculate HTTP percentiles
         var p95, p99 float64
         if len(metrics.Latencies) > 0 {
             sorted := make([]float64, len(metrics.Latencies))
@@ -102,7 +115,18 @@ func (m *MetricsCollector) flush() {
             p99 = sorted[int(float64(len(sorted))*0.99)]
         }
 
-        // Calculate average latency
+        // Calculate TCP percentiles
+        var tcpP95, tcpP99 float64
+        if len(metrics.TCPLatencies) > 0 {
+            sorted := make([]float64, len(metrics.TCPLatencies))
+            copy(sorted, metrics.TCPLatencies)
+            sort.Float64s(sorted)
+
+            tcpP95 = sorted[int(float64(len(sorted))*0.95)]
+            tcpP99 = sorted[int(float64(len(sorted))*0.99)]
+        }
+
+        // Calculate average HTTP latency
         var avgLatency float64
         if len(metrics.Latencies) > 0 {
             sum := 0.0
@@ -110,6 +134,16 @@ func (m *MetricsCollector) flush() {
                 sum += lat
             }
             avgLatency = sum / float64(len(metrics.Latencies))
+        }
+
+        // Calculate average TCP latency
+        var avgTCPLatency float64
+        if len(metrics.TCPLatencies) > 0 {
+            sum := 0.0
+            for _, lat := range metrics.TCPLatencies {
+                sum += lat
+            }
+            avgTCPLatency = sum / float64(len(metrics.TCPLatencies))
         }
 
         // First, check if the domain exists and get its ID
@@ -129,28 +163,51 @@ func (m *MetricsCollector) flush() {
             return true
         }
 
-        // Insert metrics into database using the verified domain_id
-        _, err = m.db.Exec(ctx,
-            `INSERT INTO request_metrics 
-            (domain_id, timestamp, request_count, error_count, avg_latency_ms, p95_latency_ms, p99_latency_ms)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            domainID,
-            time.Now(),
-            metrics.RequestCount,
-            metrics.ErrorCount,
-            avgLatency,
-            p95,
-            p99,
-        )
+        // Insert HTTP metrics into database
+        if metrics.RequestCount > 0 {
+            _, err = m.db.Exec(ctx,
+                `INSERT INTO request_metrics 
+                (domain_id, timestamp, request_count, error_count, avg_latency_ms, p95_latency_ms, p99_latency_ms)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                domainID,
+                time.Now(),
+                metrics.RequestCount,
+                metrics.ErrorCount,
+                avgLatency,
+                p95,
+                p99,
+            )
 
-        if err != nil {
-            fmt.Printf("Error flushing metrics: %v\n", err)
+            if err != nil {
+                fmt.Printf("Error flushing HTTP metrics: %v\n", err)
+            }
+        }
+
+        // Insert TCP metrics into database
+        if metrics.TCPCount > 0 {
+            _, err = m.db.Exec(ctx,
+                `INSERT INTO tcp_metrics 
+                (domain_id, timestamp, connection_count, avg_latency_ms, p95_latency_ms, p99_latency_ms)
+                VALUES ($1, $2, $3, $4, $5, $6)`,
+                domainID,
+                time.Now(),
+                metrics.TCPCount,
+                avgTCPLatency,
+                tcpP95,
+                tcpP99,
+            )
+
+            if err != nil {
+                fmt.Printf("Error flushing TCP metrics: %v\n", err)
+            }
         }
 
         // Reset metrics
         metrics.RequestCount = 0
         metrics.ErrorCount = 0
+        metrics.TCPCount = 0
         metrics.Latencies = metrics.Latencies[:0]
+        metrics.TCPLatencies = metrics.TCPLatencies[:0]
 
         return true
     })
