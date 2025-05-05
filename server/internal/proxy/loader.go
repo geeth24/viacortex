@@ -92,8 +92,9 @@ func (l *Loader) LoadAllDomains() error {
         // For TCP domains, use the name instead of targetURL to avoid protocol prefix issues
         domainKey := targetURL
         if strings.HasPrefix(targetURL, "tcp://") {
-            domainKey = name
-            log.Printf("Using domain name %s instead of %s for TCP", name, targetURL)
+            // Extract the domain from the target URL (after tcp://)
+            domainKey = strings.TrimPrefix(targetURL, "tcp://")
+            log.Printf("Using extracted domain %s from TCP target URL %s", domainKey, targetURL)
         }
 
         config := &DomainConfig{

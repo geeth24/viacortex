@@ -353,6 +353,8 @@ func (p *ProxyServer) startTCPProxies() {
 		// Add other protocol-specific ports as needed
 	}
 	
+	log.Printf("Starting TCP proxies for protocols: %v", protocolPorts)
+	
 	// Start a listener for each protocol
 	for protocol, port := range protocolPorts {
 		go p.startTCPProxy(protocol, port)
@@ -361,21 +363,25 @@ func (p *ProxyServer) startTCPProxies() {
 
 // startTCPProxy starts a TCP proxy listener on the specified port for a specific protocol
 func (p *ProxyServer) startTCPProxy(protocol string, port int) {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	addr := fmt.Sprintf(":%d", port)
+	log.Printf("Setting up TCP proxy listener for %s on %s", protocol, addr)
+	
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Printf("TCP proxy listen error for %s on port %d: %v", protocol, port, err)
 		return
 	}
 	
-	log.Printf("Starting TCP proxy for %s on port %d", protocol, port)
+	log.Printf("Successfully started TCP proxy for %s on port %d", protocol, port)
 	
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			log.Printf("TCP accept error: %v", err)
+			log.Printf("TCP accept error on port %d: %v", port, err)
 			continue
 		}
 		
+		log.Printf("Accepted new TCP connection on port %d from %s", port, conn.RemoteAddr().String())
 		go p.handleTCPConnection(conn, protocol)
 	}
 }
@@ -388,6 +394,15 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 	clientAddr := clientConn.RemoteAddr().String()
 	log.Printf("New %s TCP connection from %s", protocol, clientAddr)
 	
+	// Log all available domains for debugging
+	var availableDomains []string
+	p.domains.Range(func(key, value interface{}) bool {
+		domain := key.(string)
+		availableDomains = append(availableDomains, domain)
+		return true
+	})
+	log.Printf("Available domains: %v", availableDomains)
+	
 	// Find the first domain with TCP backends for this protocol
 	var domain string
 	var tcpConfig *DomainConfig
@@ -396,14 +411,27 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 		domainName := key.(string)
 		config := value.(*DomainConfig)
 		
+		log.Printf("Checking domain %s for TCP backends", domainName)
+		
 		// Check if this domain has any TCP backends
+		hasTcpBackend := false
 		for _, backend := range config.Backends {
-			if backend.Scheme == "tcp" && backend.IsActive && 
-			   (backend.HealthStatus == nil || *backend.HealthStatus == "healthy") {
-				domain = domainName
-				tcpConfig = config
-				return false // Stop iterating
+			if backend.Scheme == "tcp" {
+				hasTcpBackend = true
+				log.Printf("Domain %s has TCP backend: %s:%d (active: %v, health: %v)", 
+					domainName, backend.IP, backend.Port, backend.IsActive, 
+					backend.HealthStatus)
+				
+				if backend.IsActive && (backend.HealthStatus == nil || *backend.HealthStatus == "healthy") {
+					domain = domainName
+					tcpConfig = config
+					return false // Stop iterating
+				}
 			}
+		}
+		
+		if !hasTcpBackend {
+			log.Printf("Domain %s has no TCP backends", domainName)
 		}
 		
 		return true // Continue iterating
@@ -431,6 +459,7 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 	
 	// Connect to backend
 	backendAddr := fmt.Sprintf("%s:%d", backend.IP.String(), backend.Port)
+	log.Printf("Connecting to backend %s", backendAddr)
 	backendConn, err := net.Dial("tcp", backendAddr)
 	if err != nil {
 		log.Printf("TCP backend connection error: %v", err)
