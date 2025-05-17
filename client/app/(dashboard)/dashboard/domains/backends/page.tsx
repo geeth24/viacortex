@@ -182,6 +182,7 @@ export default function BackendServersPage() {
       
       fetchBackendServers(selectedDomain)
     } catch (error: unknown) {
+      console.error('Delete backend server error:', error)
       toast.error('Failed to delete backend server. Please try again.')
     }
   }
