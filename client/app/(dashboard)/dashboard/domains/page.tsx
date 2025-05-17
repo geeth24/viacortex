@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Edit, Trash2, Server, Globe } from 'lucide-react'
+import { Plus, Edit, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -13,9 +13,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
 import { useForm } from 'react-hook-form'
-import { Toaster } from '@/components/ui/toaster'
 import { toast } from 'sonner'
-import { Domain, BackendServer, DomainWithBackends } from '@/types/domains'
+import { Domain, DomainWithBackends } from '@/types/domains'
+
+interface DomainFormValues {
+  name: string;
+  target_url: string;
+  ssl_enabled: boolean;
+  health_check_enabled: boolean;
+  health_check_interval: number;
+}
 
 export default function DomainsPage() {
   const [domains, setDomains] = useState<Domain[]>([])
@@ -24,7 +31,7 @@ export default function DomainsPage() {
   const [openDialog, setOpenDialog] = useState(false)
   const [currentDomain, setCurrentDomain] = useState<Domain | null>(null)
 
-  const form = useForm({
+  const form = useForm<DomainFormValues>({
     defaultValues: {
       name: '',
       target_url: '',
@@ -60,14 +67,14 @@ export default function DomainsPage() {
         setDomains([])
         setDomainWithBackends([])
       }
-    } catch (error) {
+    } catch (error: unknown) {
       toast.error('Failed to load domains. Please try again.')
     } finally {
       setIsLoading(false)
     }
   }
 
-  const onSubmit = async (values: any) => {
+  const onSubmit = async (values: DomainFormValues) => {
     try {
       const method = currentDomain ? 'PUT' : 'POST'
       const url = currentDomain 
@@ -94,7 +101,7 @@ export default function DomainsPage() {
       setOpenDialog(false)
       form.reset()
       fetchDomains()
-    } catch (error) {
+    } catch (error: unknown) {
       toast.error('Failed to save domain. Please try again.')
     }
   }
@@ -115,7 +122,7 @@ export default function DomainsPage() {
       toast.success('Domain deleted successfully')
       
       fetchDomains()
-    } catch (error) {
+    } catch (error: unknown) {
       toast.error('Failed to delete domain. Please try again.')
     }
   }
@@ -146,7 +153,7 @@ export default function DomainsPage() {
 
   const getStatusBadge = (domain: Domain) => {
     const domainWithBackend = domainWithBackends.find(item => item.domain.id === domain.id)
-    const hasActiveBackends = domainWithBackend?.backend_servers.some(server => server.is_active) || false
+    const hasActiveBackends = domainWithBackend?.backend_servers?.some(server => server.is_active) || false
     
     if (!hasActiveBackends) {
       return <Badge className="bg-gray-500">Inactive</Badge>
@@ -157,7 +164,7 @@ export default function DomainsPage() {
 
   const countBackends = (domainId: number) => {
     const domainWithBackend = domainWithBackends.find(item => item.domain.id === domainId)
-    return domainWithBackend?.backend_servers.length || 0
+    return domainWithBackend?.backend_servers?.length || 0
   }
 
   const getTargetType = (targetUrl: string) => {
@@ -200,7 +207,7 @@ export default function DomainsPage() {
                 <Alert>
                   <AlertTitle>No domains found</AlertTitle>
                   <AlertDescription>
-                    You have not added any domains yet. Click the "Add Domain" button to get started.
+                    You have not added any domains yet. Click the &quot;Add Domain&quot; button to get started.
                   </AlertDescription>
                 </Alert>
               ) : (

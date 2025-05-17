@@ -1,23 +1,29 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Edit, Trash2, ExternalLink, Server, Heart, AlertTriangle } from 'lucide-react'
+import { Plus, Edit, Trash2, ExternalLink, Heart, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Switch } from '@/components/ui/switch'
-import { Progress } from '@/components/ui/progress'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
-import { Domain, BackendServer, DomainWithBackends } from '@/types/domains'
+import { Domain, BackendServer } from '@/types/domains'
+
+interface ServerFormValues {
+  name: string;
+  scheme: string;
+  ip: string;
+  port: number;
+  weight: number;
+  is_active: boolean;
+}
 
 export default function BackendServersPage() {
   const [domains, setDomains] = useState<Domain[]>([])
@@ -27,7 +33,7 @@ export default function BackendServersPage() {
   const [openDialog, setOpenDialog] = useState(false)
   const [currentServer, setCurrentServer] = useState<BackendServer | null>(null)
 
-  const form = useForm({
+  const form = useForm<ServerFormValues>({
     defaultValues: {
       name: '',
       scheme: 'http',
@@ -116,7 +122,7 @@ export default function BackendServersPage() {
     }
   }
 
-  const onSubmit = async (values: any) => {
+  const onSubmit = async (values: ServerFormValues) => {
     if (!selectedDomain) return
 
     try {
@@ -175,7 +181,7 @@ export default function BackendServersPage() {
       toast.success('Backend server deleted successfully')
       
       fetchBackendServers(selectedDomain)
-    } catch (error) {
+    } catch (error: unknown) {
       toast.error('Failed to delete backend server. Please try again.')
     }
   }
@@ -219,18 +225,18 @@ export default function BackendServersPage() {
 
   const getStatusBadge = (isActive: boolean) => {
     return isActive 
-      ? <Badge className="bg-green-500">Active</Badge>
+      ? <Badge className="bg-primary">Active</Badge>
       : <Badge className="bg-gray-500">Inactive</Badge>
   }
 
   const getSchemeBadge = (scheme: string) => {
     switch (scheme) {
       case 'https':
-        return <Badge variant="outline" className="bg-green-100">HTTPS</Badge>
+        return <Badge variant="outline">HTTPS</Badge>
       case 'tcp':
-        return <Badge variant="outline" className="bg-blue-100">TCP</Badge>
+        return <Badge variant="outline">TCP</Badge>
       default:
-        return <Badge variant="outline" className="bg-gray-100">HTTP</Badge>
+        return <Badge variant="outline">HTTP</Badge>
     }
   }
 
@@ -283,7 +289,7 @@ export default function BackendServersPage() {
             <Alert>
               <AlertTitle>No backend servers found</AlertTitle>
               <AlertDescription>
-                This domain doesn't have any backend servers yet. Click the "Add Server" button to get started.
+                This domain doesn&apos;t have any backend servers yet. Click the &quot;Add Server&quot; button to get started.
               </AlertDescription>
             </Alert>
           ) : (

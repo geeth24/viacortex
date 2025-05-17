@@ -47,7 +47,7 @@ export default function LoginPage() {
     
     try {
       // Get the full URL to the login API endpoint
-      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/auth/login`;
+      const apiUrl = `${window.location.origin}/api/auth/login`;
       console.log('Making login request to:', apiUrl);
       
       const response = await fetch(apiUrl, {
@@ -109,6 +109,7 @@ export default function LoginPage() {
                 id="email"
                 name="email"
                 placeholder="name@example.com"
+                type="email"
                 autoCapitalize="none"
                 autoComplete="email"
                 autoCorrect="off"
