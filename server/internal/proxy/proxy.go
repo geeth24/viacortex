@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -73,6 +74,44 @@ func NewProxyServer() (*ProxyServer, error) {
 	}, nil
 }
 
+// storeACMEChallenge is a helper to manually create an ACME challenge token file if needed
+func (p *ProxyServer) storeACMEChallenge(domain, token, keyAuth string) error {
+	// Ensure base directories exist
+	dataDir := "/root/.local/share/certmagic"
+	
+	// Store in multiple possible locations for compatibility
+	locations := []string{
+		filepath.Join(dataDir, "acme", "http-01", domain, token),
+		filepath.Join(dataDir, "acme-http-01", domain, token),
+	}
+	
+	for _, location := range locations {
+		// Ensure parent directory exists
+		if err := os.MkdirAll(filepath.Dir(location), 0700); err != nil {
+			log.Printf("Warning: failed to create directory for challenge token at %s: %v", location, err)
+			continue
+		}
+		
+		// Write the token
+		if err := os.WriteFile(location, []byte(keyAuth), 0600); err != nil {
+			log.Printf("Warning: failed to write challenge token to %s: %v", location, err)
+			continue
+		}
+		
+		log.Printf("Successfully stored ACME challenge token at %s", location)
+	}
+	
+	// Also try to store via the storage interface
+	if err := p.certManager.Storage.Store(context.Background(), path.Join("acme", "http-01", domain, token), []byte(keyAuth)); err != nil {
+		log.Printf("Warning: failed to store challenge token via storage interface: %v", err)
+	} else {
+		log.Printf("Successfully stored ACME challenge token via storage interface")
+	}
+	
+	return nil
+}
+
+// handleACMEChallenge handles HTTP-01 ACME challenges
 func (p *ProxyServer) handleACMEChallenge(w http.ResponseWriter, r *http.Request) bool {
 	if !strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
 		return false
@@ -81,15 +120,37 @@ func (p *ProxyServer) handleACMEChallenge(w http.ResponseWriter, r *http.Request
 	// Get the token from the path
 	token := path.Base(r.URL.Path)
 	
+	log.Printf("Handling ACME challenge for token: %s, host: %s", token, r.Host)
+	
 	// Get the key authorization from certmagic's storage
 	challengePath := path.Join("acme", "http-01", r.Host, token)
 	keyAuth, err := p.certManager.Storage.Load(context.Background(), challengePath)
 	if err != nil {
-		log.Printf("ACME challenge error for token %s: %v", token, err)
-		http.Error(w, "Challenge not found", http.StatusNotFound)
-		return true
+		// Try alternate path format used by some certmagic versions
+		challengePath = path.Join("acme-http-01", r.Host, token)
+		keyAuth, err = p.certManager.Storage.Load(context.Background(), challengePath)
+		if err != nil {
+			log.Printf("ACME challenge error for token %s: %v", token, err)
+			
+			// As a fallback, check if token exists directly in the storage directory
+			dataDir := "/root/.local/share/certmagic"
+			tokenPath := filepath.Join(dataDir, "acme", "http-01", r.Host, token)
+			log.Printf("Trying to read token directly from: %s", tokenPath)
+			
+			if content, err := os.ReadFile(tokenPath); err == nil {
+				log.Printf("Successfully read token from direct file: %s", tokenPath)
+				w.Header().Set("Content-Type", "text/plain")
+				w.Write(content)
+				return true
+			}
+			
+			http.Error(w, "Challenge not found", http.StatusNotFound)
+			return true
+		}
 	}
 
+	log.Printf("Successfully serving ACME challenge for %s: %s", r.Host, string(keyAuth))
+	
 	// Serve the challenge response
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write(keyAuth)
@@ -282,35 +343,98 @@ func (p *ProxyServer) ObtainCertificate(domain string) error {
 		log.Printf("Requesting certificate for %s (stripped from %s)", cleanDomain, domain)
 	}
 	
+	// Ensure challenge directories exist for this specific domain
+	dataDir := "/root/.local/share/certmagic"
+	httpChallengeDomainDir := filepath.Join(dataDir, "acme", "http-01", cleanDomain)
+	if err := os.MkdirAll(httpChallengeDomainDir, 0700); err != nil {
+		log.Printf("Warning: could not create challenge directory for %s: %v", cleanDomain, err)
+	}
+	
+	// Also create the alternative path used by some certmagic versions
+	altChallengeDomainDir := filepath.Join(dataDir, "acme-http-01", cleanDomain)
+	if err := os.MkdirAll(altChallengeDomainDir, 0700); err != nil {
+		log.Printf("Warning: could not create alt challenge directory for %s: %v", cleanDomain, err)
+	}
+	
+	// Configure with HTTP-01 only for this request
+	issuer := certmagic.NewACMEIssuer(p.certManager, certmagic.ACMEIssuer{
+		CA:                      certmagic.DefaultACME.CA,
+		Email:                   certmagic.DefaultACME.Email,
+		Agreed:                  true,
+		DisableHTTPChallenge:    false,
+		DisableTLSALPNChallenge: true,
+		AltHTTPPort:             80, // Ensure we're using standard HTTP port
+		Logger:                  certmagic.DefaultACME.Logger,
+	})
+	
+	// Create a temporary issuer just for this certificate
+	p.certManager.Issuers = []certmagic.Issuer{issuer}
+	
+	// Request certificate management
+	log.Printf("Requesting certificate management for %s", cleanDomain)
 	if err := p.certManager.ManageAsync(ctx, []string{cleanDomain}); err != nil {
 		return fmt.Errorf("failed to obtain certificate for %s: %w", cleanDomain, err)
 	}
+	
+	log.Printf("Certificate request initiated for %s", cleanDomain)
 	return nil
 }
 
 func (p *ProxyServer) ConfigureCertmagic(email string) error {
-	// Set default config for certmagic
-	certmagic.DefaultACME.Email = email
-	certmagic.DefaultACME.Agreed = true
-	
-	// Configure both HTTP-01 and TLS-ALPN-01 challenges
-	certmagic.DefaultACME.DisableHTTPChallenge = false
-	certmagic.DefaultACME.DisableTLSALPNChallenge = false
-	
-	// Optional: Set alternate ports for challenges if needed
-	// certmagic.DefaultACME.AltHTTPPort = 8080
-	// certmagic.DefaultACME.AltTLSALPNPort = 8443
-	
 	// Configure storage location
 	dataDir := "/root/.local/share/certmagic"
+	
+	// Ensure directories exist
 	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return fmt.Errorf("failed to create certmagic directory: %w", err)
 	}
 	
-	// Configure storage for the default config
-	certmagic.Default.Storage = &certmagic.FileStorage{Path: dataDir}
+	// Create additional directories needed for HTTP-01 challenges
+	httpChallengeDir := filepath.Join(dataDir, "acme", "http-01")
+	if err := os.MkdirAll(httpChallengeDir, 0700); err != nil {
+		return fmt.Errorf("failed to create HTTP challenge directory: %w", err)
+	}
 	
-	// Optional: Enable staging environment for testing
+	// Also create the alternative path used by some certmagic versions
+	altChallengeDir := filepath.Join(dataDir, "acme-http-01")
+	if err := os.MkdirAll(altChallengeDir, 0700); err != nil {
+		return fmt.Errorf("failed to create alternative HTTP challenge directory: %w", err)
+	}
+	
+	// Configure storage for certmagic
+	storage := &certmagic.FileStorage{Path: dataDir}
+	certmagic.Default.Storage = storage
+	
+	// Set up the certmagic instance
+	certConfig := certmagic.NewDefault()
+	certConfig.Storage = storage
+	
+	// Set default config for ACME
+	certmagic.DefaultACME.Email = email
+	certmagic.DefaultACME.Agreed = true
+	certmagic.DefaultACME.DisableHTTPChallenge = false
+	certmagic.DefaultACME.DisableTLSALPNChallenge = true
+	
+	// Create ACME issuer
+	acmeIssuer := certmagic.NewACMEIssuer(certConfig, certmagic.ACMEIssuer{
+		CA:                      certmagic.DefaultACME.CA,
+		Email:                   email,
+		Agreed:                  true,
+		DisableHTTPChallenge:    false,
+		DisableTLSALPNChallenge: true,
+		AltHTTPPort:             80, // Ensure we're using standard HTTP port
+		Logger:                  certmagic.DefaultACME.Logger,
+	})
+	
+	// Set issuer for the config
+	certConfig.Issuers = []certmagic.Issuer{acmeIssuer}
+	
+	// Store the configured certmagic instance
+	p.certManager = certConfig
+	
+	log.Printf("Certmagic configured with email: %s, storage path: %s", email, dataDir)
+	
+	// For testing/debugging purposes, uncomment to use staging environment
 	// certmagic.DefaultACME.CA = certmagic.LetsEncryptStagingCA
 	
 	return nil
@@ -578,8 +702,9 @@ func (p *ProxyServer) Metrics() *MetricsCollector {
 
 // httpHandler handles HTTP requests, primarily for redirecting to HTTPS
 func (p *ProxyServer) httpHandler(w http.ResponseWriter, r *http.Request) {
-	// First, check for ACME challenges
+	// First and most important, check for ACME challenges
 	if p.handleACMEChallenge(w, r) {
+		log.Printf("Served ACME challenge for %s", r.Host)
 		return
 	}
 
@@ -589,9 +714,10 @@ func (p *ProxyServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		host = h
 	}
 	
-	// Check if this domain is configured for SSL
+	// Check if this domain is configured
 	configVal, ok := p.domains.Load(host)
 	if !ok {
+		log.Printf("Domain not found: %s", host)
 		http.Error(w, "Domain not found", http.StatusNotFound)
 		return
 	}
