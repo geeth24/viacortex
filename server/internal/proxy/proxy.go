@@ -266,8 +266,24 @@ func (p *ProxyServer) DeleteDomain(domain string) {
 
 func (p *ProxyServer) ObtainCertificate(domain string) error {
 	ctx := context.Background()
-	if err := p.certManager.ManageAsync(ctx, []string{domain}); err != nil {
-		return fmt.Errorf("failed to obtain certificate for %s: %w", domain, err)
+	
+	// Strip any protocol prefixes to get a clean domain name
+	cleanDomain := domain
+	if strings.HasPrefix(domain, "https://") {
+		cleanDomain = strings.TrimPrefix(domain, "https://")
+	} else if strings.HasPrefix(domain, "http://") {
+		cleanDomain = strings.TrimPrefix(domain, "http://")
+	} else if strings.HasPrefix(domain, "tcp://") {
+		cleanDomain = strings.TrimPrefix(domain, "tcp://")
+	}
+	
+	// Log the domain transformation for debugging
+	if cleanDomain != domain {
+		log.Printf("Requesting certificate for %s (stripped from %s)", cleanDomain, domain)
+	}
+	
+	if err := p.certManager.ManageAsync(ctx, []string{cleanDomain}); err != nil {
+		return fmt.Errorf("failed to obtain certificate for %s: %w", cleanDomain, err)
 	}
 	return nil
 }
