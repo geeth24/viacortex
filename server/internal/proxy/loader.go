@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"log"
 	"net"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -51,7 +50,7 @@ func (l *Loader) LoadAllDomains() error {
 
     // Query all active domains
     rows, err := l.db.Query(ctx, `
-        SELECT 
+        SELECT
             d.id,
             d.name,
             d.target_url,
@@ -89,22 +88,8 @@ func (l *Loader) LoadAllDomains() error {
             return err
         }
 
-        // For TCP domains, use the name instead of targetURL to avoid protocol prefix issues
-        domainKey := targetURL
-        // Extract domain from URL by removing protocol prefixes
-        if strings.HasPrefix(targetURL, "tcp://") {
-            domainKey = strings.TrimPrefix(targetURL, "tcp://")
-            log.Printf("Using extracted domain %s from TCP target URL %s", domainKey, targetURL)
-        } else if strings.HasPrefix(targetURL, "https://") {
-            domainKey = strings.TrimPrefix(targetURL, "https://")
-            log.Printf("Using extracted domain %s from HTTPS target URL %s", domainKey, targetURL)
-        } else if strings.HasPrefix(targetURL, "http://") {
-            domainKey = strings.TrimPrefix(targetURL, "http://")
-            log.Printf("Using extracted domain %s from HTTP target URL %s", domainKey, targetURL)
-        }
-
         config := &DomainConfig{
-            Domain:             domainKey,
+            Domain:             name,
             SSLEnabled:        sslEnabled,
             HealthCheckEnabled: healthCheckEnabled,
         }
@@ -151,7 +136,7 @@ func (l *Loader) LoadAllDomains() error {
 
 func (l *Loader) loadBackends(ctx context.Context, domainID int64) ([]*BackendServer, error) {
     rows, err := l.db.Query(ctx, `
-        SELECT 
+        SELECT
             id, scheme, host(ip::inet), port, weight, is_active,
             last_health_check, health_status
         FROM backend_servers
