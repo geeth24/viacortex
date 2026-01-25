@@ -67,7 +67,7 @@ type RateLimit struct {
 func NewProxyServer() (*ProxyServer, error) {
 	// Initialize certmagic with default config
 	certConfig := certmagic.NewDefault()
-	
+
 	return &ProxyServer{
 		certManager: certConfig,
 		metrics:     NewMetricsCollector(),
@@ -78,36 +78,36 @@ func NewProxyServer() (*ProxyServer, error) {
 func (p *ProxyServer) storeACMEChallenge(domain, token, keyAuth string) error {
 	// Ensure base directories exist
 	dataDir := "/root/.local/share/certmagic"
-	
+
 	// Store in multiple possible locations for compatibility
 	locations := []string{
 		filepath.Join(dataDir, "acme", "http-01", domain, token),
 		filepath.Join(dataDir, "acme-http-01", domain, token),
 	}
-	
+
 	for _, location := range locations {
 		// Ensure parent directory exists
 		if err := os.MkdirAll(filepath.Dir(location), 0700); err != nil {
 			log.Printf("Warning: failed to create directory for challenge token at %s: %v", location, err)
 			continue
 		}
-		
+
 		// Write the token
 		if err := os.WriteFile(location, []byte(keyAuth), 0600); err != nil {
 			log.Printf("Warning: failed to write challenge token to %s: %v", location, err)
 			continue
 		}
-		
+
 		log.Printf("Successfully stored ACME challenge token at %s", location)
 	}
-	
+
 	// Also try to store via the storage interface
 	if err := p.certManager.Storage.Store(context.Background(), path.Join("acme", "http-01", domain, token), []byte(keyAuth)); err != nil {
 		log.Printf("Warning: failed to store challenge token via storage interface: %v", err)
 	} else {
 		log.Printf("Successfully stored ACME challenge token via storage interface")
 	}
-	
+
 	return nil
 }
 
@@ -119,9 +119,9 @@ func (p *ProxyServer) handleACMEChallenge(w http.ResponseWriter, r *http.Request
 
 	// Get the token from the path
 	token := path.Base(r.URL.Path)
-	
+
 	log.Printf("Handling ACME challenge for token: %s, host: %s", token, r.Host)
-	
+
 	// Get the key authorization from certmagic's storage
 	challengePath := path.Join("acme", "http-01", r.Host, token)
 	keyAuth, err := p.certManager.Storage.Load(context.Background(), challengePath)
@@ -131,26 +131,26 @@ func (p *ProxyServer) handleACMEChallenge(w http.ResponseWriter, r *http.Request
 		keyAuth, err = p.certManager.Storage.Load(context.Background(), challengePath)
 		if err != nil {
 			log.Printf("ACME challenge error for token %s: %v", token, err)
-			
+
 			// As a fallback, check if token exists directly in the storage directory
 			dataDir := "/root/.local/share/certmagic"
 			tokenPath := filepath.Join(dataDir, "acme", "http-01", r.Host, token)
 			log.Printf("Trying to read token directly from: %s", tokenPath)
-			
+
 			if content, err := os.ReadFile(tokenPath); err == nil {
 				log.Printf("Successfully read token from direct file: %s", tokenPath)
 				w.Header().Set("Content-Type", "text/plain")
 				w.Write(content)
 				return true
 			}
-			
+
 			http.Error(w, "Challenge not found", http.StatusNotFound)
 			return true
 		}
 	}
 
 	log.Printf("Successfully serving ACME challenge for %s: %s", r.Host, string(keyAuth))
-	
+
 	// Serve the challenge response
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write(keyAuth)
@@ -170,7 +170,7 @@ func (p *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if host, _, err := net.SplitHostPort(domain); err == nil {
 		domain = host
 	}
-	
+
 	// Get domain config
 	configVal, ok := p.domains.Load(domain)
 	if !ok {
@@ -178,32 +178,32 @@ func (p *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	config := configVal.(*DomainConfig)
-	
+
 	// Check IP rules
 	if !p.checkIPRules(r, config) {
 		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}
-	
+
 	// Check rate limit
 	if !p.checkRateLimit(r, config) {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}
-	
+
 	// Select backend using round-robin
 	backend := p.selectBackend(config)
 	if backend == nil {
 		http.Error(w, "No healthy backends available", http.StatusServiceUnavailable)
 		return
 	}
-	
+
 	// Create the reverse proxy
 	targetURL := &url.URL{
 		Scheme: backend.Scheme,
 		Host:   fmt.Sprintf("%s:%d", backend.IP.String(), backend.Port),
 	}
-	
+
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL.Scheme = targetURL.Scheme
@@ -240,7 +240,7 @@ func (p *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ExpectContinueTimeout: 1 * time.Second,
 		},
 	}
-	
+
 	proxy.ServeHTTP(w, r)
 }
 
@@ -254,13 +254,13 @@ func (p *ProxyServer) checkIPRules(r *http.Request, config *DomainConfig) bool {
 	if clientIP == nil {
 		return false
 	}
-	
+
 	for _, rule := range config.IPRules {
 		if rule.IPRange.Contains(clientIP) {
 			return rule.RuleType == "whitelist"
 		}
 	}
-	
+
 	// If no rules match, default to allow
 	return true
 }
@@ -269,7 +269,7 @@ func (p *ProxyServer) checkRateLimit(r *http.Request, config *DomainConfig) bool
 	if config.RateLimit == nil {
 		return true
 	}
-	
+
 	var key string
 	if config.RateLimit.PerIP {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -280,39 +280,39 @@ func (p *ProxyServer) checkRateLimit(r *http.Request, config *DomainConfig) bool
 	} else {
 		key = config.Domain
 	}
-	
+
 	limiter, _ := p.rateLimits.LoadOrStore(key, rate.NewLimiter(
 		rate.Limit(config.RateLimit.RequestsPerSecond),
 		config.RateLimit.BurstSize,
 	))
-	
+
 	return limiter.(*rate.Limiter).Allow()
 }
 
 func (p *ProxyServer) selectBackend(config *DomainConfig) *BackendServer {
 	config.mu.Lock()
 	defer config.mu.Unlock()
-	
+
 	if len(config.Backends) == 0 {
 		return nil
 	}
-	
+
 	// Skip unhealthy backends
 	for i := 0; i < len(config.Backends); i++ {
 		config.currentBackend = (config.currentBackend + 1) % len(config.Backends)
 		backend := config.Backends[config.currentBackend]
-		
+
 		if backend.IsActive && (backend.HealthStatus == nil || *backend.HealthStatus == "healthy") {
 			return backend
 		}
 	}
-	
+
 	return nil
 }
 
 func (p *ProxyServer) UpdateDomain(domain string, config *DomainConfig) {
 	p.domains.Store(domain, config)
-	
+
 	// If SSL is enabled, ensure we have a certificate
 	if config.SSLEnabled {
 		if err := p.ObtainCertificate(domain); err != nil {
@@ -327,7 +327,7 @@ func (p *ProxyServer) DeleteDomain(domain string) {
 
 func (p *ProxyServer) ObtainCertificate(domain string) error {
 	ctx := context.Background()
-	
+
 	// Strip any protocol prefixes to get a clean domain name
 	cleanDomain := domain
 	if strings.HasPrefix(domain, "https://") {
@@ -337,25 +337,25 @@ func (p *ProxyServer) ObtainCertificate(domain string) error {
 	} else if strings.HasPrefix(domain, "tcp://") {
 		cleanDomain = strings.TrimPrefix(domain, "tcp://")
 	}
-	
+
 	// Log the domain transformation for debugging
 	if cleanDomain != domain {
 		log.Printf("Requesting certificate for %s (stripped from %s)", cleanDomain, domain)
 	}
-	
+
 	// Ensure challenge directories exist for this specific domain
 	dataDir := "/root/.local/share/certmagic"
 	httpChallengeDomainDir := filepath.Join(dataDir, "acme", "http-01", cleanDomain)
 	if err := os.MkdirAll(httpChallengeDomainDir, 0700); err != nil {
 		log.Printf("Warning: could not create challenge directory for %s: %v", cleanDomain, err)
 	}
-	
+
 	// Also create the alternative path used by some certmagic versions
 	altChallengeDomainDir := filepath.Join(dataDir, "acme-http-01", cleanDomain)
 	if err := os.MkdirAll(altChallengeDomainDir, 0700); err != nil {
 		log.Printf("Warning: could not create alt challenge directory for %s: %v", cleanDomain, err)
 	}
-	
+
 	// Configure with HTTP-01 only for this request
 	issuer := certmagic.NewACMEIssuer(p.certManager, certmagic.ACMEIssuer{
 		CA:                      certmagic.DefaultACME.CA,
@@ -366,16 +366,16 @@ func (p *ProxyServer) ObtainCertificate(domain string) error {
 		AltHTTPPort:             80, // Ensure we're using standard HTTP port
 		Logger:                  certmagic.DefaultACME.Logger,
 	})
-	
+
 	// Create a temporary issuer just for this certificate
 	p.certManager.Issuers = []certmagic.Issuer{issuer}
-	
+
 	// Request certificate management
 	log.Printf("Requesting certificate management for %s", cleanDomain)
 	if err := p.certManager.ManageAsync(ctx, []string{cleanDomain}); err != nil {
 		return fmt.Errorf("failed to obtain certificate for %s: %w", cleanDomain, err)
 	}
-	
+
 	log.Printf("Certificate request initiated for %s", cleanDomain)
 	return nil
 }
@@ -383,38 +383,38 @@ func (p *ProxyServer) ObtainCertificate(domain string) error {
 func (p *ProxyServer) ConfigureCertmagic(email string) error {
 	// Configure storage location
 	dataDir := "/root/.local/share/certmagic"
-	
+
 	// Ensure directories exist
 	if err := os.MkdirAll(dataDir, 0700); err != nil {
 		return fmt.Errorf("failed to create certmagic directory: %w", err)
 	}
-	
+
 	// Create additional directories needed for HTTP-01 challenges
 	httpChallengeDir := filepath.Join(dataDir, "acme", "http-01")
 	if err := os.MkdirAll(httpChallengeDir, 0700); err != nil {
 		return fmt.Errorf("failed to create HTTP challenge directory: %w", err)
 	}
-	
+
 	// Also create the alternative path used by some certmagic versions
 	altChallengeDir := filepath.Join(dataDir, "acme-http-01")
 	if err := os.MkdirAll(altChallengeDir, 0700); err != nil {
 		return fmt.Errorf("failed to create alternative HTTP challenge directory: %w", err)
 	}
-	
+
 	// Configure storage for certmagic
 	storage := &certmagic.FileStorage{Path: dataDir}
 	certmagic.Default.Storage = storage
-	
+
 	// Set up the certmagic instance
 	certConfig := certmagic.NewDefault()
 	certConfig.Storage = storage
-	
+
 	// Set default config for ACME
 	certmagic.DefaultACME.Email = email
 	certmagic.DefaultACME.Agreed = true
 	certmagic.DefaultACME.DisableHTTPChallenge = false
 	certmagic.DefaultACME.DisableTLSALPNChallenge = true
-	
+
 	// Create ACME issuer
 	acmeIssuer := certmagic.NewACMEIssuer(certConfig, certmagic.ACMEIssuer{
 		CA:                      certmagic.DefaultACME.CA,
@@ -425,18 +425,18 @@ func (p *ProxyServer) ConfigureCertmagic(email string) error {
 		AltHTTPPort:             80, // Ensure we're using standard HTTP port
 		Logger:                  certmagic.DefaultACME.Logger,
 	})
-	
+
 	// Set issuer for the config
 	certConfig.Issuers = []certmagic.Issuer{acmeIssuer}
-	
+
 	// Store the configured certmagic instance
 	p.certManager = certConfig
-	
+
 	log.Printf("Certmagic configured with email: %s, storage path: %s", email, dataDir)
-	
+
 	// For testing/debugging purposes, uncomment to use staging environment
 	// certmagic.DefaultACME.CA = certmagic.LetsEncryptStagingCA
-	
+
 	return nil
 }
 
@@ -495,9 +495,9 @@ func (p *ProxyServer) startTCPProxies() {
 		"minecraft": 25565,
 		// Add other protocol-specific ports as needed
 	}
-	
+
 	log.Printf("Starting TCP proxies for protocols: %v", protocolPorts)
-	
+
 	// Start a listener for each protocol
 	for protocol, port := range protocolPorts {
 		go func(proto string, portNum int) {
@@ -511,22 +511,22 @@ func (p *ProxyServer) startTCPProxies() {
 func (p *ProxyServer) startTCPProxy(protocol string, port int) {
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
 	log.Printf("Setting up TCP proxy listener for %s on %s", protocol, addr)
-	
+
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Printf("TCP proxy listen error for %s on port %d: %v", protocol, port, err)
 		return
 	}
-	
+
 	log.Printf("Successfully started TCP proxy for %s on port %d", protocol, port)
-	
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			log.Printf("TCP accept error on port %d: %v", port, err)
 			continue
 		}
-		
+
 		log.Printf("Accepted new TCP connection on port %d from %s", port, conn.RemoteAddr().String())
 		go p.handleTCPConnection(conn, protocol)
 	}
@@ -535,11 +535,11 @@ func (p *ProxyServer) startTCPProxy(protocol string, port int) {
 // handleTCPConnection handles a TCP connection by determining the target and proxying data
 func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) {
 	defer clientConn.Close()
-	
+
 	// Get client address
 	clientAddr := clientConn.RemoteAddr().String()
 	log.Printf("New %s TCP connection from %s", protocol, clientAddr)
-	
+
 	// Log all available domains for debugging
 	var availableDomains []string
 	p.domains.Range(func(key, value interface{}) bool {
@@ -548,26 +548,26 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 		return true
 	})
 	log.Printf("Available domains: %v", availableDomains)
-	
+
 	// Find the first domain with TCP backends for this protocol
 	var domain string
 	var tcpConfig *DomainConfig
-	
+
 	p.domains.Range(func(key, value interface{}) bool {
 		domainName := key.(string)
 		config := value.(*DomainConfig)
-		
+
 		log.Printf("Checking domain %s for TCP backends", domainName)
-		
+
 		// Check if this domain has any TCP backends
 		hasTcpBackend := false
 		for _, backend := range config.Backends {
 			if backend.Scheme == "tcp" {
 				hasTcpBackend = true
-				log.Printf("Domain %s has TCP backend: %s:%d (active: %v, health: %v)", 
-					domainName, backend.IP, backend.Port, backend.IsActive, 
+				log.Printf("Domain %s has TCP backend: %s:%d (active: %v, health: %v)",
+					domainName, backend.IP, backend.Port, backend.IsActive,
 					backend.HealthStatus)
-				
+
 				if backend.IsActive && (backend.HealthStatus == nil || *backend.HealthStatus == "healthy") {
 					domain = domainName
 					tcpConfig = config
@@ -575,34 +575,34 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 				}
 			}
 		}
-		
+
 		if !hasTcpBackend {
 			log.Printf("Domain %s has no TCP backends", domainName)
 		}
-		
+
 		return true // Continue iterating
 	})
-	
+
 	if domain == "" || tcpConfig == nil {
 		log.Printf("No domain with active TCP backends found for %s", protocol)
 		return
 	}
-	
+
 	log.Printf("Using domain %s for %s TCP connection", domain, protocol)
-	
+
 	// Select backend using round-robin
 	backend := p.selectBackend(tcpConfig)
 	if backend == nil {
 		log.Printf("No healthy TCP backends available for %s on %s", domain, protocol)
 		return
 	}
-	
+
 	// Only proxy to TCP backends
 	if backend.Scheme != "tcp" {
 		log.Printf("Backend for %s is not TCP", domain)
 		return
 	}
-	
+
 	// Connect to backend
 	backendAddr := fmt.Sprintf("%s:%d", backend.IP.String(), backend.Port)
 	log.Printf("Connecting to backend %s", backendAddr)
@@ -612,25 +612,25 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 		return
 	}
 	defer backendConn.Close()
-	
+
 	log.Printf("Established %s connection to backend at %s", protocol, backendAddr)
-	
+
 	// Start proxying data in both directions
 	start := time.Now()
-	
+
 	// Create a context for this connection
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
+
 	// Create a WaitGroup to wait for both goroutines to finish
 	var wg sync.WaitGroup
 	wg.Add(2)
-	
+
 	// Client to backend
 	go func() {
 		defer wg.Done()
 		defer cancel() // Cancel context if this direction fails
-		
+
 		buf := make([]byte, 32*1024) // 32 KB buffer
 		for {
 			select {
@@ -645,7 +645,7 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 					}
 					return
 				}
-				
+
 				backendConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 				_, err = backendConn.Write(buf[:n])
 				if err != nil {
@@ -655,12 +655,12 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 			}
 		}
 	}()
-	
+
 	// Backend to client
 	go func() {
 		defer wg.Done()
 		defer cancel() // Cancel context if this direction fails
-		
+
 		buf := make([]byte, 32*1024) // 32 KB buffer
 		for {
 			select {
@@ -675,7 +675,7 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 					}
 					return
 				}
-				
+
 				clientConn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 				_, err = clientConn.Write(buf[:n])
 				if err != nil {
@@ -685,19 +685,24 @@ func (p *ProxyServer) handleTCPConnection(clientConn net.Conn, protocol string) 
 			}
 		}
 	}()
-	
+
 	// Wait for both goroutines to finish
 	wg.Wait()
-	
+
 	// Record metrics
 	duration := time.Since(start)
 	p.metrics.RecordTCPRequest(domain, duration)
-	
+
 	log.Printf("TCP connection closed: %s -> %s, duration: %v", clientAddr, backendAddr, duration)
 }
 
 func (p *ProxyServer) Metrics() *MetricsCollector {
 	return p.metrics
+}
+
+func (p *ProxyServer) Shutdown(ctx context.Context) error {
+	log.Println("Proxy server shutting down...")
+	return nil
 }
 
 // httpHandler handles HTTP requests, primarily for redirecting to HTTPS
@@ -713,7 +718,7 @@ func (p *ProxyServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	
+
 	// Check if this domain is configured
 	configVal, ok := p.domains.Load(host)
 	if !ok {
@@ -721,7 +726,7 @@ func (p *ProxyServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Domain not found", http.StatusNotFound)
 		return
 	}
-	
+
 	config := configVal.(*DomainConfig)
 	if config.SSLEnabled {
 		// Redirect to HTTPS
@@ -731,7 +736,7 @@ func (p *ProxyServer) httpHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, u.String(), http.StatusTemporaryRedirect)
 		return
 	}
-	
+
 	// If SSL is not enabled, serve the HTTP request
 	p.ServeHTTP(w, r)
 }
