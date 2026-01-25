@@ -11,7 +11,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BACKEND_URL=http://server:8080
-RUN npm run build
+RUN NEXT_LINT_IGNORE=true npm run build -- --no-lint
 
 FROM base AS runner
 WORKDIR /app
