@@ -1,21 +1,17 @@
-'use client';
+"use client";
 
-import * as React from 'react';
+import * as React from "react";
 import {
-  Activity,
   LayoutDashboard,
   Settings2,
   Shield,
   Globe,
-  Server,
   Users,
   FileText,
-  BarChart,
-  History,
-} from 'lucide-react';
+} from "lucide-react";
 
-import { NavMain } from '@/components/sidebar/nav-main';
-import { NavUser } from '@/components/sidebar/nav-user';
+import { NavMain } from "@/components/sidebar/nav-main";
+import { NavUser } from "@/components/sidebar/nav-user";
 import {
   Sidebar,
   SidebarContent,
@@ -25,167 +21,89 @@ import {
   SidebarMenuItem,
   SidebarMenu,
   SidebarRail,
-} from '@/components/ui/sidebar';
-import Logo from '../logo';
+} from "@/components/ui/sidebar";
+import Logo from "../logo";
 
 const data = {
   navMain: [
     {
-      title: 'Dashboard',
-      url: '/dashboard',
+      title: "Dashboard",
+      url: "/dashboard",
       icon: LayoutDashboard,
       isActive: true,
       items: [
         {
-          title: 'Overview',
-          url: '/dashboard',
-        },
-        {
-          title: 'Metrics',
-          url: '/dashboard/metrics',
-        },
-        {
-          title: 'Logs',
-          url: '/dashboard/logs',
+          title: "Overview",
+          url: "/dashboard",
         },
       ],
     },
     {
-      title: 'Domains',
-      url: '/domains',
+      title: "Domains",
+      url: "/dashboard/domains",
       icon: Globe,
       items: [
         {
-          title: 'All Domains',
-          url: '/dashboard/domains',
+          title: "All Domains",
+          url: "/dashboard/domains",
         },
         {
-          title: 'Backend Servers',
-          url: '/dashboard/domains/backends',
-        },
-        {
-          title: 'SSL Certificates',
-          url: '/dashboard/domains/certificates',
-        },
-        {
-          title: 'Error Pages',
-          url: '/dashboard/domains/error-pages',
+          title: "Redirects",
+          url: "/dashboard/domains/redirects",
         },
       ],
     },
     {
-      title: 'Security',
-      url: '/dashboard/security',
+      title: "Security",
+      url: "/dashboard/security",
       icon: Shield,
       items: [
         {
-          title: 'IP Rules',
-          url: '/dashboard/security/ip-rules',
+          title: "IP Rules",
+          url: "/dashboard/security/ip-rules",
         },
         {
-          title: 'Rate Limits',
-          url: '/dashboard/security/rate-limits',
-        },
-        {
-          title: 'Blacklist',
-          url: '/dashboard/security/blacklist',
-        },
-        {
-          title: 'Auth Settings',
-          url: '/dashboard/security/auth',
+          title: "Rate Limits",
+          url: "/dashboard/security/rate-limits",
         },
       ],
     },
     {
-      title: 'Load Balancing',
-      url: '/dashboard/load-balancing',
-      icon: Activity,
-      items: [
-        {
-          title: 'Rules',
-          url: '/dashboard/load-balancing/rules',
-        },
-        {
-          title: 'Status',
-          url: '/dashboard/load-balancing/status',
-        },
-      ],
-    },
-    {
-      title: 'Analytics',
-      url: '/dashboard/analytics',
-      icon: BarChart,
-      items: [
-        {
-          title: 'Global Metrics',
-          url: '/dashboard/analytics/metrics',
-        },
-        {
-          title: 'Domain Metrics',
-          url: '/dashboard/analytics/domain-metrics',
-        },
-      ],
-    },
-    {
-      title: 'Users',
-      url: '/dashboard/users',
-      icon: Users,
-      items: [
-        {
-          title: 'All Users',
-          url: '/dashboard/users/all',
-        },
-        {
-          title: 'Profile',
-          url: '/dashboard/users/profile',
-        },
-        {
-          title: 'Roles',
-          url: '/dashboard/users/roles',
-        },
-      ],
-    },
-    {
-      title: 'Audit',
-      url: '/dashboard/audit',
+      title: "Logs",
+      url: "/dashboard/logs",
       icon: FileText,
       items: [
         {
-          title: 'Audit Logs',
-          url: '/dashboard/audit/logs',
+          title: "Access Logs",
+          url: "/dashboard/logs/access",
         },
         {
-          title: 'Entity History',
-          url: '/dashboard/audit/history',
+          title: "Audit Logs",
+          url: "/dashboard/logs/audit",
         },
       ],
     },
     {
-      title: 'Settings',
-      url: '/dashboard/settings',
+      title: "Users",
+      url: "/dashboard/users",
+      icon: Users,
+      items: [
+        {
+          title: "All Users",
+          url: "/dashboard/users",
+        },
+      ],
+    },
+    {
+      title: "Settings",
+      url: "/dashboard/settings",
       icon: Settings2,
       items: [
         {
-          title: 'General',
-          url: '/dashboard/settings/general',
-        },
-        {
-          title: 'Profile',
-          url: '/dashboard/settings/profile',
-        },
-        {
-          title: 'Integrations',
-          url: '/dashboard/settings/integrations',
+          title: "Profile",
+          url: "/dashboard/settings/profile",
         },
       ],
-    },
-  ],
-
-  navSecondary: [
-    {
-      title: 'Settings',
-      url: '/dashboard/settings',
-      icon: Settings2,
     },
   ],
 };
@@ -197,13 +115,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <a href="#">
+              <a href="/dashboard">
                 <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                   <Logo className="size-4 text-primary-foreground" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-semibold">ViaCortex</span>
-                  <span className="truncate text-xs">Fast, Secure, and Scalable</span>
+                  <span className="truncate text-xs">Reverse Proxy</span>
                 </div>
               </a>
             </SidebarMenuButton>
@@ -214,7 +132,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain items={data.navMain} />
       </SidebarContent>
       <SidebarFooter>
-        {/* <NavSecondary items={data.navSecondary} /> */}
         <NavUser />
       </SidebarFooter>
       <SidebarRail />

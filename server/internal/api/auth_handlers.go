@@ -68,11 +68,11 @@ func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
 
     // Check if email already exists
     var exists bool
-    err = tx.QueryRow(ctx, 
-        "SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)", 
+    err = tx.QueryRow(ctx,
+        "SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)",
         req.Email,
     ).Scan(&exists)
-    
+
     if err != nil {
         log.Printf("Error checking email existence: %v", err)
         http.Error(w, "Server error", http.StatusInternalServerError)
@@ -95,8 +95,8 @@ func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
     var userID int64
     err = tx.QueryRow(ctx, `
         INSERT INTO users (
-            email, 
-            password_hash, 
+            email,
+            password_hash,
             role,
             active,
             last_login
@@ -116,13 +116,13 @@ func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
         "role":  req.Role,
     }
     changesJSON, _ := json.Marshal(changes)
-    
+
     _, err = tx.Exec(ctx, `
         INSERT INTO audit_logs (
-            user_id, 
-            action, 
-            entity_type, 
-            entity_id, 
+            user_id,
+            action,
+            entity_type,
+            entity_id,
             changes
         ) VALUES ($1, $2, $3, $4, $5)
     `, userID, "register", "user", userID, changesJSON)
@@ -144,7 +144,7 @@ func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
 
     err = h.db.QueryRow(ctx, `
         SELECT id, email, name, role, active, last_login, created_at, updated_at
-        FROM users 
+        FROM users
         WHERE id = $1
     `, userID).Scan(
         &user.ID, &user.Email, &nullableName, &user.Role, &user.Active,
@@ -215,8 +215,8 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
     var nullableName sql.NullString
 
     err = tx.QueryRow(ctx, `
-        SELECT id, email, password_hash, role, active, name 
-        FROM users 
+        SELECT id, email, password_hash, role, active, name
+        FROM users
         WHERE email = $1
     `, req.Email).Scan(&user.ID, &user.Email, &user.Password, &user.Role, &user.Active, &nullableName)
 
@@ -244,11 +244,11 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
 
     // Update last login time
     _, err = tx.Exec(ctx, `
-        UPDATE users 
-        SET last_login = CURRENT_TIMESTAMP 
+        UPDATE users
+        SET last_login = CURRENT_TIMESTAMP
         WHERE id = $1
     `, user.ID)
-    
+
     if err != nil {
         log.Printf("Error updating last login: %v", err)
     }
@@ -256,13 +256,13 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
     // Add audit log
     changes := map[string]string{"action": "login"}
     changesJSON, _ := json.Marshal(changes)
-    
+
     _, err = tx.Exec(ctx, `
         INSERT INTO audit_logs (
-            user_id, 
-            action, 
-            entity_type, 
-            entity_id, 
+            user_id,
+            action,
+            entity_type,
+            entity_id,
             changes
         ) VALUES ($1, $2, $3, $4, $5)
     `, user.ID, "login", "user", user.ID, changesJSON)
@@ -277,7 +277,7 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Server error", http.StatusInternalServerError)
         return
     }
-    
+
     // After the scan, set the name
     if nullableName.Valid {
         user.Name = nullableName.String
@@ -315,7 +315,7 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) handleRefresh(w http.ResponseWriter, r *http.Request) {
     ctx := r.Context()
-    
+
     refreshToken := r.Header.Get("X-Refresh-Token")
     if refreshToken == "" {
         http.Error(w, "Refresh token required", http.StatusBadRequest)
@@ -363,7 +363,7 @@ func (h *Handlers) handleRefresh(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) verifyToken(w http.ResponseWriter, r *http.Request) {
     ctx := r.Context()
-    
+
     authHeader := r.Header.Get("Authorization")
     if authHeader == "" {
         http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -388,7 +388,7 @@ func (h *Handlers) verifyToken(w http.ResponseWriter, r *http.Request) {
 
     err = h.db.QueryRow(ctx, `
         SELECT id, email, name, role, active, last_login, created_at, updated_at
-        FROM users 
+        FROM users
         WHERE id = $1 AND active = true
     `, claims.UserID).Scan(
         &user.ID, &user.Email, &nullableName, &user.Role, &user.Active,
@@ -443,9 +443,13 @@ func (h *Handlers) checkUsers(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(map[string]int{"count": count})
 }
 
+func isValidRole(role string) bool {
+    return role == "admin" || role == "user"
+}
+
 func (h *Handlers) handleVerify(w http.ResponseWriter, r *http.Request) {
     ctx := r.Context()
-    
+
     // Get token from Authorization header
     authHeader := r.Header.Get("Authorization")
     if authHeader == "" {
@@ -472,7 +476,7 @@ func (h *Handlers) handleVerify(w http.ResponseWriter, r *http.Request) {
 
     err = h.db.QueryRow(ctx, `
         SELECT id, email, name, role, active, last_login, created_at, updated_at
-        FROM users 
+        FROM users
         WHERE id = $1 AND active = true
     `, claims.UserID).Scan(
         &user.ID, &user.Email, &nullableName, &user.Role, &user.Active,

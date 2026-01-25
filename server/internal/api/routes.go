@@ -13,119 +13,86 @@ import (
 )
 
 func SetupRoutes(r *chi.Mux, handlers *Handlers) {
-    // Global middleware
-    // r.Use(middleware.Logger) - removed to prevent duplicate logging
-    r.Use(middleware.Recoverer)
-    r.Use(middleware.Timeout(60 * time.Second))
-    
-    // Setup CORS
-    r.Use(cors.Handler(cors.Options{
-        AllowedOrigins:   []string{"*"},
-        AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-        AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Refresh-Token"},
-        ExposedHeaders:   []string{"Link"},
-        AllowCredentials: true,
-        MaxAge:           300,
-    }))
-    r.Route("/", func(r chi.Router) {
-        r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-            w.WriteHeader(http.StatusOK)
-        })
-    })
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(60 * time.Second))
 
-    r.Route("/api", func(apiRouter chi.Router) {
-        // Middleware for all API routes
-        apiRouter.Use(middleware.AllowContentType("application/json"))
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Refresh-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
 
-        // Public routes
-        apiRouter.Group(func(r chi.Router) {
-            r.Post("/register", handlers.handleRegister)
-            r.Post("/login", handlers.handleLogin)
-            r.Post("/refresh", handlers.handleRefresh)
-            r.Get("/check-users", handlers.checkUsers)
-            r.Get("/verify", handlers.verifyToken)
-        })
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 
-        // Status endpoint (public)
-        apiRouter.Get("/status", func(w http.ResponseWriter, r *http.Request) {
-            json.NewEncoder(w).Encode(map[string]string{
-                "status":  "ok",
-                "version": "1.0.0",
-            })
-        })
+	r.Route("/api", func(api chi.Router) {
+		api.Use(middleware.AllowContentType("application/json"))
 
-        // Protected routes
-        apiRouter.Group(func(r chi.Router) {
-            r.Use(custommiddleware.AuthMiddleware)
-            
-            // Domains
-            r.Route("/domains", func(r chi.Router) {
-                r.Get("/", handlers.getDomains)
-                r.Post("/", handlers.createDomain)
-                r.Route("/{id}", func(r chi.Router) {
-                    r.Put("/", handlers.updateDomain)
-                    r.Delete("/", handlers.deleteDomain)
-                    
-                    // Backend servers for a domain
-                    r.Route("/backends", func(r chi.Router) {
-                        r.Get("/", handlers.getBackendServers)
-                        r.Post("/", handlers.addBackendServer)
-                        r.Put("/{serverID}", handlers.updateBackendServer)
-                        r.Delete("/{serverID}", handlers.deleteBackendServer)
-                    })
-                    
-                    // IP rules for a domain
-                    r.Route("/ip-rules", func(r chi.Router) {
-                        r.Get("/", handlers.getIPRules)
-                        r.Post("/", handlers.addIPRule)
-                        r.Delete("/{ruleID}", handlers.deleteIPRule)
-                    })
-                    
-                    // Rate limits for a domain
-                    r.Route("/rate-limits", func(r chi.Router) {
-                        r.Get("/", handlers.getRateLimits)
-                        r.Post("/", handlers.addRateLimit)
-                        r.Put("/{limitID}", handlers.updateRateLimit)
-                        r.Delete("/{limitID}", handlers.deleteRateLimit)
-                    })
-                })
-            })
-            
-            // Metrics and logs
-            r.Route("/metrics", func(r chi.Router) {
-                r.Get("/", handlers.getGlobalMetrics)
-                r.Get("/{domainID}", handlers.getDomainMetrics)
-            })
-            
-            r.Route("/logs", func(r chi.Router) {
-                r.Get("/", handlers.getGlobalLogs)
-                r.Get("/{domainID}", handlers.getDomainLogs)
-            })
-            
-            // User management
-            r.Route("/users", func(r chi.Router) {
-                r.Get("/", handlers.getUsers)
-                r.Post("/", handlers.createUser)
-                r.Route("/{id}", func(r chi.Router) {
-                    r.Put("/", handlers.updateUser)
-                    r.Delete("/", handlers.deleteUser)
-                    r.Put("/role", handlers.updateUserRole)
-                })
-            })
+		// Public routes
+		api.Post("/register", handlers.handleRegister)
+		api.Post("/login", handlers.handleLogin)
+		api.Post("/refresh", handlers.handleRefresh)
+		api.Get("/check-users", handlers.checkUsers)
+		api.Get("/verify", handlers.verifyToken)
+		api.Get("/status", func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]string{
+				"status":  "ok",
+				"version": "2.0.0",
+			})
+		})
+		api.Options("/*", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
 
-            // Audit logs
-            r.Route("/audit", func(r chi.Router) {
-                r.Get("/", handlers.getAuditLogs)
-                r.Get("/{entityType}/{entityID}", handlers.getEntityAuditLogs)
-            })
+		// Protected routes
+		api.Group(func(r chi.Router) {
+			r.Use(custommiddleware.AuthMiddleware)
 
-            // Add this new route
-            r.Post("/profile", handlers.updateUserProfile)
-        })
+			// Domains
+			r.Get("/domains", handlers.getDomains)
+			r.Post("/domains", handlers.createDomain)
+			r.Get("/domains/{id}", handlers.getDomain)
+			r.Put("/domains/{id}", handlers.updateDomain)
+			r.Delete("/domains/{id}", handlers.deleteDomain)
+			r.Patch("/domains/{id}/toggle", handlers.toggleDomain)
 
-        // In your routes setup
-        apiRouter.Options("/*", func(w http.ResponseWriter, r *http.Request) {
-            w.WriteHeader(http.StatusOK)
-        })
-    })
+			// IP Rules
+			r.Get("/domains/{id}/ip-rules", handlers.getIPRules)
+			r.Post("/domains/{id}/ip-rules", handlers.addIPRule)
+			r.Delete("/domains/{id}/ip-rules/{ruleID}", handlers.deleteIPRule)
+
+			// Rate Limits
+			r.Get("/domains/{id}/rate-limit", handlers.getRateLimit)
+			r.Put("/domains/{id}/rate-limit", handlers.setRateLimit)
+			r.Delete("/domains/{id}/rate-limit", handlers.deleteRateLimit)
+
+			// Redirects
+			r.Get("/domains/{id}/redirects", handlers.getRedirects)
+			r.Post("/domains/{id}/redirects", handlers.addRedirect)
+			r.Put("/domains/{id}/redirects/{redirectID}", handlers.updateRedirect)
+			r.Delete("/domains/{id}/redirects/{redirectID}", handlers.deleteRedirect)
+
+			// Access Logs
+			r.Get("/logs", handlers.getAccessLogs)
+			r.Get("/domains/{id}/logs", handlers.getDomainLogs)
+
+			// Users
+			r.Get("/users", handlers.getUsers)
+			r.Post("/users", handlers.createUser)
+			r.Get("/users/{id}", handlers.getUser)
+			r.Put("/users/{id}", handlers.updateUser)
+			r.Delete("/users/{id}", handlers.deleteUser)
+
+			// Profile
+			r.Get("/profile", handlers.getProfile)
+			r.Put("/profile", handlers.updateProfile)
+
+			// Audit Logs
+			r.Get("/audit", handlers.getAuditLogs)
+		})
+	})
 }
