@@ -204,6 +204,8 @@ func (p *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Host:   fmt.Sprintf("%s:%d", backend.IP.String(), backend.Port),
 	}
 
+	log.Printf("Proxying request for %s to backend %s://%s:%d", domain, backend.Scheme, backend.IP.String(), backend.Port)
+
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL.Scheme = targetURL.Scheme
@@ -233,6 +235,9 @@ func (p *ProxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}).DialContext,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
 			ForceAttemptHTTP2:     true,
 			MaxIdleConns:          100,
 			IdleConnTimeout:       90 * time.Second,
