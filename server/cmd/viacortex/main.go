@@ -126,7 +126,7 @@ func main() {
         defer wg.Done()
         log.Println("Proxy server starting on ports 80 and 443")
         log.Println("TCP proxy for Minecraft should also be starting on port 25565")
-        
+
         // Debug DNS resolution
         go func() {
             time.Sleep(5 * time.Second) // Wait for everything to start
@@ -140,7 +140,7 @@ func main() {
                 }
             }
         }()
-        
+
         if err := proxyServer.Run(80, 443); err != nil {
             log.Printf("Proxy server error: %v", err)
         }
@@ -150,31 +150,30 @@ func main() {
     stop := make(chan os.Signal, 1)
     signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-    go func() {
-        <-stop
-        log.Println("Shutting down servers...")
-        
-        // Cancel context to stop the loader
-        cancel()
+    <-stop
+    log.Println("Shutting down servers...")
 
-		// Stop health checker
-		 healthChecker.Stop()
-		 
-        // Create shutdown context with timeout
-        shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-        defer shutdownCancel()
+    // Cancel context to stop the loader
+    cancel()
 
-        // Shutdown admin server
-        if err := adminServer.Shutdown(shutdownCtx); err != nil {
-            log.Printf("Admin server shutdown error: %v", err)
-        }
+    // Stop health checker
+    healthChecker.Stop()
 
-        // Signal WaitGroup that we're done
-        wg.Done()
-        wg.Done()
-    }()
+    // Create shutdown context with timeout
+    shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer shutdownCancel()
 
-    // Wait for clean shutdown
+    // Shutdown admin server
+    if err := adminServer.Shutdown(shutdownCtx); err != nil {
+        log.Printf("Admin server shutdown error: %v", err)
+    }
+
+    // Shutdown proxy server
+    if err := proxyServer.Shutdown(shutdownCtx); err != nil {
+        log.Printf("Proxy server shutdown error: %v", err)
+    }
+
+    // Wait for servers to finish
     wg.Wait()
     log.Println("Servers shut down gracefully")
 }
