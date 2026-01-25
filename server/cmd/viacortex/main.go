@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,7 +13,6 @@ import (
 
 	"viacortex/internal/api"
 	"viacortex/internal/db"
-	"viacortex/internal/healthcheck"
 	"viacortex/internal/middleware"
 	"viacortex/internal/proxy"
 
@@ -24,156 +22,115 @@ import (
 )
 
 func main() {
-    // Create a context that we'll cancel on shutdown
-    ctx, cancel := context.WithCancel(context.Background())
-    defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-    // Initialize DB connection
-    dbpool, err := db.InitDB()
-    if err != nil {
-        log.Fatalf("Unable to connect to database: %v\n", err)
-    }
-    defer dbpool.Close()
+	dbpool, err := db.InitDB()
+	if err != nil {
+		log.Fatalf("Unable to connect to database: %v\n", err)
+	}
+	defer dbpool.Close()
 
-    // Initialize proxy server
-    proxyServer, err := proxy.NewProxyServer()
-    if err != nil {
-        log.Fatal(err)
-    }
+	proxyServer, err := proxy.NewProxyServer()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	if err := proxyServer.ConfigureCertmagic("geeth0924@gmail.com"); err != nil {
-    log.Fatalf("Failed to configure certmagic: %v", err)
-}
-    proxyServer.Metrics().SetDB(dbpool)
+		log.Fatalf("Failed to configure certmagic: %v", err)
+	}
 
-    // Initialize and do first load of domains
-    loader := proxy.NewLoader(dbpool, proxyServer)
+	loader := proxy.NewLoader(dbpool, proxyServer)
 	if err := loader.LoadAllDomains(); err != nil {
 		log.Printf("Initial domain load error: %v", err)
 	}
-    // Start background domain loading
-    go loader.Start(ctx)
 
-	healthChecker := healthcheck.NewChecker(dbpool)
-    healthChecker.Start(ctx)
+	go loader.Start(ctx)
 
-    // Initialize admin router with middleware
-    r := chi.NewRouter()
+	r := chi.NewRouter()
 
-    // Basic middleware
-    r.Use(chimiddleware.RequestID)
-    r.Use(chimiddleware.RealIP)
-    r.Use(chimiddleware.Logger)
-    r.Use(chimiddleware.Recoverer)
-    r.Use(chimiddleware.Timeout(60 * time.Second))
+	r.Use(chimiddleware.RequestID)
+	r.Use(chimiddleware.RealIP)
+	r.Use(chimiddleware.Logger)
+	r.Use(chimiddleware.Recoverer)
+	r.Use(chimiddleware.Timeout(60 * time.Second))
 
-    // Security middleware
-    r.Use(middleware.SecurityHeaders)
-    r.Use(cors.Handler(cors.Options{
-        AllowedOrigins:   []string{"http://localhost:*", "https://*.viacortex.com"},
-        AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-        AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Refresh-Token"},
-        ExposedHeaders:   []string{"Link"},
-        AllowCredentials: true,
-        MaxAge:          300,
-    }))
-    r.Use(chimiddleware.Throttle(1000))
-    r.Use(chimiddleware.Compress(5))
+	r.Use(middleware.SecurityHeaders)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:*", "https://*.viacortex.com", "https://*.maxbrowser.win"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Refresh-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}))
+	r.Use(chimiddleware.Throttle(1000))
+	r.Use(chimiddleware.Compress(5))
 
-    // Initialize handlers and routes
-    handlers := api.NewHandlers(dbpool)
-    api.SetupRoutes(r, handlers)
+	handlers := api.NewHandlers(dbpool)
+	api.SetupRoutes(r, handlers)
 
-    // TLS configuration
-    tlsConfig := &tls.Config{
-        MinVersion:               tls.VersionTLS12,
-        CurvePreferences:         []tls.CurveID{tls.X25519, tls.CurveP256},
-        PreferServerCipherSuites: true,
-        CipherSuites: []uint16{
-            tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-            tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-            tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-            tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-            tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-            tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-        },
-    }
+	tlsConfig := &tls.Config{
+		MinVersion:               tls.VersionTLS12,
+		CurvePreferences:         []tls.CurveID{tls.X25519, tls.CurveP256},
+		PreferServerCipherSuites: true,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		},
+	}
 
-    // Create admin server
-    adminServer := &http.Server{
-        Addr:         ":8080",
-        Handler:      r,
-        TLSConfig:    tlsConfig,
-        ReadTimeout:  5 * time.Second,
-        WriteTimeout: 10 * time.Second,
-        IdleTimeout:  120 * time.Second,
-    }
+	adminServer := &http.Server{
+		Addr:         ":8080",
+		Handler:      r,
+		TLSConfig:    tlsConfig,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
 
-    // Create a WaitGroup to manage our servers
-    var wg sync.WaitGroup
-    wg.Add(2)
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-    // Start admin server (8080)
-    go func() {
-        defer wg.Done()
-        log.Println("Admin server starting on port 8080")
-        if err := adminServer.ListenAndServe(); err != http.ErrServerClosed {
-            log.Printf("Admin server error: %v", err)
-        }
-    }()
+	go func() {
+		defer wg.Done()
+		log.Println("Admin server starting on port 8080")
+		if err := adminServer.ListenAndServe(); err != http.ErrServerClosed {
+			log.Printf("Admin server error: %v", err)
+		}
+	}()
 
-    // Start proxy server (80/443)
-    go func() {
-        defer wg.Done()
-        log.Println("Proxy server starting on ports 80 and 443")
-        log.Println("TCP proxy for Minecraft should also be starting on port 25565")
+	go func() {
+		defer wg.Done()
+		log.Println("Proxy server starting on ports 80 and 443")
+		if err := proxyServer.Run(80, 443); err != nil {
+			log.Printf("Proxy server error: %v", err)
+		}
+	}()
 
-        // Debug DNS resolution
-        go func() {
-            time.Sleep(5 * time.Second) // Wait for everything to start
-            testDomains := []string{"mc.maxbrowser.win", "vc.maxbrowser.win"}
-            for _, domain := range testDomains {
-                ips, err := net.LookupIP(domain)
-                if err != nil {
-                    log.Printf("DNS lookup for %s failed: %v", domain, err)
-                } else {
-                    log.Printf("DNS lookup for %s succeeded: %v", domain, ips)
-                }
-            }
-        }()
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
-        if err := proxyServer.Run(80, 443); err != nil {
-            log.Printf("Proxy server error: %v", err)
-        }
-    }()
+	<-stop
+	log.Println("Shutting down servers...")
 
-    // Set up graceful shutdown
-    stop := make(chan os.Signal, 1)
-    signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	cancel()
 
-    <-stop
-    log.Println("Shutting down servers...")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
 
-    // Cancel context to stop the loader
-    cancel()
+	if err := adminServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Admin server shutdown error: %v", err)
+	}
 
-    // Stop health checker
-    healthChecker.Stop()
+	if err := proxyServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Proxy server shutdown error: %v", err)
+	}
 
-    // Create shutdown context with timeout
-    shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer shutdownCancel()
-
-    // Shutdown admin server
-    if err := adminServer.Shutdown(shutdownCtx); err != nil {
-        log.Printf("Admin server shutdown error: %v", err)
-    }
-
-    // Shutdown proxy server
-    if err := proxyServer.Shutdown(shutdownCtx); err != nil {
-        log.Printf("Proxy server shutdown error: %v", err)
-    }
-
-    // Wait for servers to finish
-    wg.Wait()
-    log.Println("Servers shut down gracefully")
+	wg.Wait()
+	log.Println("Servers shut down gracefully")
 }
