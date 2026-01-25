@@ -26,6 +26,7 @@ type ProxyServer struct {
 	rateLimits  sync.Map // map[string]*rate.Limiter
 	metrics     *MetricsCollector
 	certManager *certmagic.Config
+	acmeIssuer  *certmagic.ACMEIssuer
 }
 
 type DomainConfig struct {
@@ -111,49 +112,22 @@ func (p *ProxyServer) storeACMEChallenge(domain, token, keyAuth string) error {
 	return nil
 }
 
-// handleACMEChallenge handles HTTP-01 ACME challenges
+// handleACMEChallenge handles HTTP-01 ACME challenges using certmagic's built-in handler
 func (p *ProxyServer) handleACMEChallenge(w http.ResponseWriter, r *http.Request) bool {
 	if !strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") {
 		return false
 	}
 
-	// Get the token from the path
-	token := path.Base(r.URL.Path)
+	log.Printf("Handling ACME challenge for path: %s, host: %s", r.URL.Path, r.Host)
 
-	log.Printf("Handling ACME challenge for token: %s, host: %s", token, r.Host)
-
-	// Get the key authorization from certmagic's storage
-	challengePath := path.Join("acme", "http-01", r.Host, token)
-	keyAuth, err := p.certManager.Storage.Load(context.Background(), challengePath)
-	if err != nil {
-		// Try alternate path format used by some certmagic versions
-		challengePath = path.Join("acme-http-01", r.Host, token)
-		keyAuth, err = p.certManager.Storage.Load(context.Background(), challengePath)
-		if err != nil {
-			log.Printf("ACME challenge error for token %s: %v", token, err)
-
-			// As a fallback, check if token exists directly in the storage directory
-			dataDir := "/root/.local/share/certmagic"
-			tokenPath := filepath.Join(dataDir, "acme", "http-01", r.Host, token)
-			log.Printf("Trying to read token directly from: %s", tokenPath)
-
-			if content, err := os.ReadFile(tokenPath); err == nil {
-				log.Printf("Successfully read token from direct file: %s", tokenPath)
-				w.Header().Set("Content-Type", "text/plain")
-				w.Write(content)
-				return true
-			}
-
-			http.Error(w, "Challenge not found", http.StatusNotFound)
-			return true
-		}
+	// Use certmagic's HTTP challenge handler
+	if p.acmeIssuer != nil && p.acmeIssuer.HandleHTTPChallenge(w, r) {
+		log.Printf("Successfully served ACME challenge via certmagic for %s", r.Host)
+		return true
 	}
 
-	log.Printf("Successfully serving ACME challenge for %s: %s", r.Host, string(keyAuth))
-
-	// Serve the challenge response
-	w.Header().Set("Content-Type", "text/plain")
-	w.Write(keyAuth)
+	log.Printf("ACME challenge not found for %s%s", r.Host, r.URL.Path)
+	http.Error(w, "Challenge not found", http.StatusNotFound)
 	return true
 }
 
@@ -434,8 +408,9 @@ func (p *ProxyServer) ConfigureCertmagic(email string) error {
 	// Set issuer for the config
 	certConfig.Issuers = []certmagic.Issuer{acmeIssuer}
 
-	// Store the configured certmagic instance
+	// Store the configured certmagic instance and ACME issuer
 	p.certManager = certConfig
+	p.acmeIssuer = acmeIssuer
 
 	log.Printf("Certmagic configured with email: %s, storage path: %s", email, dataDir)
 
