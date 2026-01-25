@@ -123,7 +123,7 @@ func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
             action,
             entity_type,
             entity_id,
-            changes
+            details
         ) VALUES ($1, $2, $3, $4, $5)
     `, userID, "register", "user", userID, changesJSON)
 
@@ -263,7 +263,7 @@ func (h *Handlers) handleLogin(w http.ResponseWriter, r *http.Request) {
             action,
             entity_type,
             entity_id,
-            changes
+            details
         ) VALUES ($1, $2, $3, $4, $5)
     `, user.ID, "login", "user", user.ID, changesJSON)
 
